@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.stats as st
 from numba import njit, jit
+from houses import *
 
 # way to globally access these variables
 mean_income = 460_000 # 4.6 lakhs, avg income in delhi
@@ -26,7 +27,6 @@ def find_income_brackets(mean_income = mean_income, log_std = log_std, percentil
     return cutoffs
 
 cutoffs = find_income_brackets()
-"--------------------------------------------------------------------------------------------------------------------"
 
 "-------------------------------------------- generate the agents finally -------------------------------------------"
 def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std, cutoffs=cutoffs):
@@ -47,7 +47,6 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std,
     # so every cell number when labelled like this ends with the floor of the x coord and begins with the floor of the y coord
     neighborhood = y_coords * 10 + x_coords    
     return incomes, brackets, locations, neighborhood
-"--------------------------------------------------------------------------------------------------------------------"
 
 "---------------------------------- list of arrays that represent each neighborhood ---------------------------------"
 @njit
@@ -57,4 +56,39 @@ def neighborhood_lists(neighborhood):
         residents = np.where(neighborhood == i)[0] # consists of residents of neighborhood i
         neighborhood_list.append(residents)
     return neighborhood_list
-"--------------------------------------------------------------------------------------------------------------------"
+
+"--------------- check whether the happiness condition is met, vectorized O(n) instead of O(n^2) looping -------------"
+@njit
+def check_happiness(array, happiness_percent = 0.5):
+    array = np.asarray(array)
+    n = array.size
+    happiness_threshold = n * happiness_percent * 100
+
+    # freq basically becomes an array counting frequency of each income bracket
+    freq = np.bincount(array, minlength=12)
+    # np.cumsum adds up freq and gives us the number of agents with <= cumsum[v]
+    # n - np.cumsum flips that and gives no. of agents with > cumsum[v]
+    # + freq allows equality so it becomes >= cumsum[v], our condition
+    cumsum = n - np.cumsum(freq) + freq
+    return (cumsum[array] * 100 >= happiness_threshold) # returns True/False for each agent
+
+"----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
+def is_happy(neighborhood, incomes, cutoffs = cutoffs, happiness_percent = 0.5):
+    neighborhood_list = neighborhood_lists(neighborhood)
+    happiness_list = []
+    for n in neighborhood_list: # for each neighborhood in the sim
+        n_income = incomes[n]
+        brackets = np.searchsorted(cutoffs, n_income) - 1 # lists each member of the neighborhood by their income bracket instead of agent index no
+        # list of arrays that contain whether agent is happy or not
+        # same format as neighborhood, so the indices correspond
+        happiness_list.append(check_happiness(brackets))
+    return happiness_list 
+
+"--------------------------------- initializes an array to check if agent has a home --------------------------------"
+@njit
+def initialize_tenancy_list(neighborhood):
+    is_tenant = [np.zeros_like(array) for array in neighborhood]
+    return is_tenant
+
+
+    
