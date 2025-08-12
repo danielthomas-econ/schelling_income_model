@@ -57,7 +57,7 @@ def neighborhood_lists(neighborhood):
         neighborhood_list.append(residents)
     return neighborhood_list
 
-"--------------- check whether the happiness condition is met, vectorized O(n) instead of O(n^2) looping -------------"
+"----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
 @njit
 def check_happiness(array, happiness_percent = 0.5):
     array = np.asarray(array)
@@ -72,7 +72,7 @@ def check_happiness(array, happiness_percent = 0.5):
     cumsum = n - np.cumsum(freq) + freq
     return (cumsum[array] * 100 >= happiness_threshold) # returns True/False for each agent
 
-"----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
+"--------------------------------- creates a list of arrays with happiness booleans ---------------------------------"
 def is_happy(neighborhood, incomes, cutoffs = cutoffs, happiness_percent = 0.5):
     neighborhood_list = neighborhood_lists(neighborhood)
     happiness_list = []

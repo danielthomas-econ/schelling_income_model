@@ -20,7 +20,7 @@ rents start at a uniform level.
 
 the homes are bid on by the agents.
 
-#### bids
+#### bids (done ✅)
 bidding logic involves social WTP, so its a variable we can vary and set counterfactuals for
 
 each agent computes max bid as $B_{i} = \min\left( \beta Y_{i} + \lambda U_{i},\delta Y_{i} \right)$, 
@@ -35,13 +35,15 @@ term one: some prpn of $Y_{i}$ + WTP for social utility
 term two: max percent of income agent is willing to spend on rent
 take min so that we don't have unrealistically high bids (like entire $Y_{i}$)
 
-#### utility function:
+bid zero if the agent is both happy and currently a tenant
+
+#### utility function: (done ✅)
 cobb douglas utility, then normalize it to be 0-1 
-$U_{i,j} = q_{i,j}^{\theta} \cdot c_{i,j} ^{1-\theta}$,
+$U_{i,j,k} = q_{i,j,k}^{\theta} \cdot c_{i,j} ^{1-\theta}$,
 where:
-$q_{i,j} =$ neighborhood quality for agent i in neighborhood j
-$q_{j} =$ % of residents with >= income bracket than agent i
-$c_{i,j} =$ consumption on goods other than housing $(Y_{i} - P{i})$.
+$q_{i,j,k} =$ neighborhood quality for agent i in neighborhood j vs neighborhood k
+$q_{j,k} =$ $\text{max}(0,r_{k} - r_{j})$, where $r_{p}$ is the percent of residents in neighborhood p with higher income than our agent
+$c_{i} =$ consumption on goods other than housing $(Y_{i} - P_{i})$.
 $\theta=$ how much agent values neighborhood quality relative to consumption. maybe $\theta_{i} \sim \text{Uniform}(0.6,0.8)$ for heterogenous agents
 $\theta$ close to 1 is more like Schelling behavior (neighborhood quality only matters), close to 0 is like a textbook economic agent.
 
@@ -68,8 +70,8 @@ happiness check -> bids -> price update -> assignment -> happiness check
 stop if all agents are happy
 
 ### future plans
-analyze through the lens of a willingness-to-pay (WTP) premium for social utility (moving to a preferred neighborhood).
-look at government intervention and conduct rcts to test the impact
+\> analyze through the lens of a willingness-to-pay (WTP) premium for social utility (moving to a preferred neighborhood).
+\> look at government intervention and conduct rcts to test the impact
 
 ### concerning things
 looking at the distribution of income brackets, it looks roughly uniformly distributed until the higher income levels.
