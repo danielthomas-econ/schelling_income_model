@@ -49,13 +49,23 @@ $\theta$ close to 1 is more like Schelling behavior (neighborhood quality only m
 
 #### price update rule:
 we update the house prices for all units in the neighborhood using 
-$P_{j,t+1} = P_{j,t} + \alpha \left(B_{j} - P_{j,t} \right)$,
+$P_{j,t+1} = P_{j,t} + \alpha \left(B_{j} - P_{j,t} \right) + \epsilon_{t+1}$,
 where:
-$B_{j} =$ avg winning bid in neighborhood j
-$P_{j}$ be the current rent of house $j$
-$\alpha$ be some randomly distributed multiplicative constant
+$B_{j} =$ avg winning bid in neighborhood $j$
+$P_{j} = $  the current rent of house $j$
+$\alpha = $  multiplicative constant giving speed of convergence to average in some sense
+$\epsilon =$ noise term $\sim N(0,\sigma^{2})$, where $\sigma = 0.02\cdot \bar{P}$ (average price)
 
 impose a price floor: house price >= 0
+
+#### agents being priced out:
+when rent increases, its possible that staying in the current neighborhood is no longer feasible for an agent
+We define the agent's max WTP for rent in neighborhood $j$ as
+$B_{i}^{\text{stay}}= \text{min}(\beta Y_{i} + \lambda Q_i, \delta Y_i)$
+The core logic is identical to bidding, but we had to replace $U$ since that compares two neighborhoods
+We replace it with $Q_{i} = r_{k}$ percent of agents in neighborhood $k$ with >= income to eliminate the comparative nature of $U$.
+
+Since $U$ depends on $r_{k}-r_{j} < r_{k} $, $U<Q$ for most situations, especially with larger $\theta$. *This should prevent the agents from being instantly priced out.* It also makes pricing out more dependent on income since $\lambda Q_{i}$ will be fixed for agent $i$ in a given neighborhood, and having the pricing out decision be more income based aligns closer with the Schelling idea for income segregation here.
 
 ## main algorithm
 each neighborhood = one grid cell
@@ -74,6 +84,8 @@ stop if all agents are happy
 \> look at government intervention and conduct rcts to test the impact
 
 ### concerning things
+IMPORTANT: REWRITE EVERYTHING TO HAVE A M x N STRUCTURED ARRAY STORING ALL OUR DATA FOR EVERY AGENT
+
 looking at the distribution of income brackets, it looks roughly uniformly distributed until the higher income levels.
 i think directly doing probs = np.array(percentiles)/100 and using probs as a cdf could be the cause
 

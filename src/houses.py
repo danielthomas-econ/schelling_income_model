@@ -10,5 +10,8 @@ def initialize_houses(neighborhood):
     rents = [np.zeros_like(array) for array in neighborhood] # we'll use this to track rents (both agents and houses can use this same array)
     return houses, vacancies, rents
 
+"------------------------------------------------- price update rule ------------------------------------------------"
+def update_price(neighborhood, bids, α): # set alpha value soon
+    return None
 
 

@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.stats as st
-from numba import njit, jit
-from houses import *
+from numba import njit, jit, prange
+from .houses import * #.houses => relative import, prevents import errors in plots.ipynb
 
 # way to globally access these variables
 mean_income = 460_000 # 4.6 lakhs, avg income in delhi
@@ -28,15 +28,65 @@ def find_income_brackets(mean_income = mean_income, log_std = log_std, percentil
 
 cutoffs = find_income_brackets()
 
+"----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
+@njit(parallel = True)
+def check_happiness(agents, happiness_percent = 0.5):
+    n = agents.size
+    income_brackets = agents["income_bracket"]
+    neighborhoods = agents["neighborhood"]
+
+    # 100 -> no. of neighborhoods (0-99), 12 -> no. of income brackets (0-11)
+    freq_per_neighborhood = np.zeros((100,12), dtype = np.int32)
+    total_per_neighborhood = np.zeros((100), dtype = np.int32)
+
+    # how many agents of each income_bracket live in each neighborhood (and total agents in a neighborhood)
+    for i in range(n):
+        nb = neighborhoods[i]
+        ib = income_brackets[i]
+        freq_per_neighborhood[nb,ib] += 1
+        total_per_neighborhood[nb] += 1 
+
+    cumsum_per_neighborhood = np.zeros((100,12), dtype = np.int32)
+    # parallelizing with prange since every nb works on a different row
+    for nb in prange(100):
+        running_sum = 0
+        # iterate over brackets backwards to get >= bracket count
+        for ib in range(11,-1,-1):
+            running_sum += freq_per_neighborhood[nb, ib]
+            cumsum_per_neighborhood[nb,ib] = running_sum
+
+    # computes happiness for each agent
+    for i in prange(n):
+        nb = neighborhoods[i]
+        ib = income_brackets[i]
+        condition = cumsum_per_neighborhood[nb,ib] / total_per_neighborhood[nb]
+        agents["happy"][i] = (condition >= happiness_percent)
+        
+    return agents
+
 "-------------------------------------------- generate the agents finally -------------------------------------------"
 def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std, cutoffs=cutoffs):
+    # gen a structured array to store everything
+    # low level memory optimization
+    # just for 9 columns, it has bought down memory consumption by ~82% vs the list of arrays structure
+    agent_dtype = np.dtype([
+        ("id", np.int32),
+        ("income", np.float64),
+        ("income_bracket", np.uint8),
+        ("neighborhood", np.uint8),
+        ("happy", np.bool_),
+        ("bid", np.float64),
+        ("rent_paid", np.float64), # no need for checking tenancy, rent_paid = 0 => not a tenant
+        ("priced_out_threshold", np.float64), # use the priced out formula
+        ("theta", np.float32),
+    ])
+    
     mu = np.log(mean_income) - 0.5 * (log_std ** 2) # math to make 2.5L the actual mean of the lognormal distr
     
     incomes = np.random.lognormal(mean=mu, sigma=log_std, size=n_agents)
     brackets = np.searchsorted(cutoffs, incomes) - 1 # sorts the incomes into the cutoffs list
     
     locations = np.random.uniform(0, 10, size=(n_agents, 2))
-    
     # get_neighborhood_num expects a single location, so vectorize it here:
     # floor the coords and calculate neighborhood numbers
     floored = np.floor(locations).astype(int)
@@ -46,49 +96,17 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std,
     # start from 0-9 on the bottom row, all the way to 90-99 on the top row
     # so every cell number when labelled like this ends with the floor of the x coord and begins with the floor of the y coord
     neighborhood = y_coords * 10 + x_coords    
-    return incomes, brackets, locations, neighborhood
 
-"---------------------------------- list of arrays that represent each neighborhood ---------------------------------"
-@njit
-def neighborhood_lists(neighborhood):
-    neighborhood_list = [] # a list where the ith index represents an array for neighborhood i, and jth index of that array is jth resident of i
-    for i in range(100):
-        residents = np.where(neighborhood == i)[0] # consists of residents of neighborhood i
-        neighborhood_list.append(residents)
-    return neighborhood_list
+    # initialize agents
+    agents = np.zeros(n_agents, dtype=agent_dtype)
 
-"----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
-@njit
-def check_happiness(array, happiness_percent = 0.5):
-    array = np.asarray(array)
-    n = array.size
-    happiness_threshold = n * happiness_percent * 100
-
-    # freq basically becomes an array counting frequency of each income bracket
-    freq = np.bincount(array, minlength=12)
-    # np.cumsum adds up freq and gives us the number of agents with <= cumsum[v]
-    # n - np.cumsum flips that and gives no. of agents with > cumsum[v]
-    # + freq allows equality so it becomes >= cumsum[v], our condition
-    cumsum = n - np.cumsum(freq) + freq
-    return (cumsum[array] * 100 >= happiness_threshold) # returns True/False for each agent
-
-"--------------------------------- creates a list of arrays with happiness booleans ---------------------------------"
-def is_happy(neighborhood, incomes, cutoffs = cutoffs, happiness_percent = 0.5):
-    neighborhood_list = neighborhood_lists(neighborhood)
-    happiness_list = []
-    for n in neighborhood_list: # for each neighborhood in the sim
-        n_income = incomes[n]
-        brackets = np.searchsorted(cutoffs, n_income) - 1 # lists each member of the neighborhood by their income bracket instead of agent index no
-        # list of arrays that contain whether agent is happy or not
-        # same format as neighborhood, so the indices correspond
-        happiness_list.append(check_happiness(brackets))
-    return happiness_list 
-
-"--------------------------------- initializes an array to check if agent has a home --------------------------------"
-@njit
-def initialize_tenancy_list(neighborhood):
-    is_tenant = [np.zeros_like(array) for array in neighborhood]
-    return is_tenant
-
-
-    
+    agents["id"] = np.arange(n_agents) 
+    agents["income"] = incomes
+    agents["income_bracket"] = brackets
+    agents["neighborhood"] = neighborhood
+    agents["happy"] = False # initially everyone is depressed :(
+    agents["bid"] = np.zeros(n_agents)
+    agents["rent_paid"] = np.zeros(n_agents)
+    agents["priced_out_threshold"] = np.zeros(n_agents)
+    agents["theta"] = np.random.uniform(0.6,0.8, n_agents)
+    return agents
