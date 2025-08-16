@@ -5,7 +5,7 @@ from numba import njit, jit, prange
 
 "------------------------------------------- cobb-douglas utility function ------------------------------------------"
 # using a call to get_proportions to prevent redoing the math, make sure to update the proportions array appropriately
-@njit(parallel = True)
+@njit(parallel = True, cache = True)
 def get_utilities(agents, proportions):
     # find utility agent i gets from moving to neighborhood k
     n = agents.size
@@ -37,7 +37,7 @@ def get_utilities(agents, proportions):
     return utilities 
 
 "--------------------------------------------------- bidding logic --------------------------------------------------"
-@jit
+@jit(cache = True)
 def place_bid(neighborhood, start_brackets, end_brackets, incomes, tenant, rents,
               β = 0.3, # base fraction of income agent is wtp
               λ = 0.2, # marginal WTP for 1 unit of social utility U
