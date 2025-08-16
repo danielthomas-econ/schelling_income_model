@@ -4,6 +4,7 @@ import numpy as np
 from numba import njit, jit
 
 "------------------------------------------- cobb-douglas utility function ------------------------------------------"
+# USE A CALL TO get_freq_and_total TO PREVENT DOING ALL THE MATH AGAIN HERE
 @njit
 def utility(θ, # gen a ~uniform(0.6,0.8) array to get some heterogenity, using it as an argument so i can njit the function
             brackets_start, brackets_end, income, rent):

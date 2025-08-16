@@ -28,38 +28,53 @@ def find_income_brackets(mean_income = mean_income, log_std = log_std, percentil
 
 cutoffs = find_income_brackets()
 
-"----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
-@njit(parallel = True)
-def check_happiness(agents, happiness_percent = 0.5):
-    n = agents.size
-    income_brackets = agents["income_bracket"]
+"----------------- get frequency of each bracket in a neighborhood + total agents in a neighborhood -----------------"
+# writing this outside check_happiness so i can use np.bincount here while still parallelizing with numba later
+# this is so much faster
+def get_freq_and_total(agents):
     neighborhoods = agents["neighborhood"]
+    income_brackets = agents["income_bracket"]
 
     # 100 -> no. of neighborhoods (0-99), 12 -> no. of income brackets (0-11)
-    freq_per_neighborhood = np.zeros((100,12), dtype = np.int32)
-    total_per_neighborhood = np.zeros((100), dtype = np.int32)
+    freq = np.zeros((100,12), dtype = np.int32)
 
-    # how many agents of each income_bracket live in each neighborhood (and total agents in a neighborhood)
-    for i in range(n):
-        nb = neighborhoods[i]
-        ib = income_brackets[i]
-        freq_per_neighborhood[nb,ib] += 1
-        total_per_neighborhood[nb] += 1 
+    # takes a (nb,ib) pair as a coordinate and increments freq[nb,ib] by 1
+    # directly fills in the freq values, we're done with updating this now
+    np.add.at(freq, (neighborhoods, income_brackets), 1)
 
-    cumsum_per_neighborhood = np.zeros((100,12), dtype = np.int32)
+    # maybe im a bit too obsessed with declaring datatypes now :)
+    # axis = 1 => sum over columns to get no. of agents in each neighborhood
+    total = freq.sum(axis=1).astype(np.int32)
+
+    return freq, total
+
+"------------ run this outside of check_happiness so i can reuse the logic later for utility evaluations ------------"
+@njit(parallel=True)
+def get_cumsum(freq):
+    cumsum = np.zeros((100,12), dtype = np.int32)
     # parallelizing with prange since every nb works on a different row
     for nb in prange(100):
         running_sum = 0
         # iterate over brackets backwards to get >= bracket count
         for ib in range(11,-1,-1):
-            running_sum += freq_per_neighborhood[nb, ib]
-            cumsum_per_neighborhood[nb,ib] = running_sum
+            running_sum += freq[nb, ib]
+            cumsum[nb,ib] = running_sum
+    return cumsum
 
+"----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
+# take freq and total as inputs so we can njit parallel this function
+@njit(parallel = True)
+def check_happiness(agents, freq, total, happiness_percent = 0.5): 
+    n = agents.size
+    income_brackets = agents["income_bracket"]
+    neighborhoods = agents["neighborhood"]
+    cumsum = get_cumsum(freq)
+    
     # computes happiness for each agent
     for i in prange(n):
         nb = neighborhoods[i]
         ib = income_brackets[i]
-        condition = cumsum_per_neighborhood[nb,ib] / total_per_neighborhood[nb]
+        condition = cumsum[nb,ib] / total[nb]
         agents["happy"][i] = (condition >= happiness_percent)
         
     return agents
@@ -81,7 +96,7 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std,
         ("theta", np.float32),
     ])
     
-    mu = np.log(mean_income) - 0.5 * (log_std ** 2) # math to make 2.5L the actual mean of the lognormal distr
+    mu = np.log(mean_income) - 0.5 * (log_std ** 2) # math to make mean_income the actual mean of the lognormal distr
     
     incomes = np.random.lognormal(mean=mu, sigma=log_std, size=n_agents)
     brackets = np.searchsorted(cutoffs, incomes) - 1 # sorts the incomes into the cutoffs list
