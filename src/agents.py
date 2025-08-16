@@ -50,32 +50,30 @@ def get_freq_and_total(agents):
 
 "------------ run this outside of check_happiness so i can reuse the logic later for utility evaluations ------------"
 @njit(parallel=True)
-def get_cumsum(freq):
-    cumsum = np.zeros((100,12), dtype = np.int32)
+def get_proportion(freq, total):
+    # precomputes an array to check what proportion in neighborhood j has >= income bracket i
+    proportions = np.zeros((100,12), dtype = np.float32)
     # parallelizing with prange since every nb works on a different row
     for nb in prange(100):
         running_sum = 0
         # iterate over brackets backwards to get >= bracket count
         for ib in range(11,-1,-1):
             running_sum += freq[nb, ib]
-            cumsum[nb,ib] = running_sum
-    return cumsum
+            proportions[nb, ib] = running_sum / total[nb]
+    return proportions
 
 "----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
-# take freq and total as inputs so we can njit parallel this function
 @njit(parallel = True)
-def check_happiness(agents, freq, total, happiness_percent = 0.5): 
+def check_happiness(agents, proportions, happiness_percent = 0.5): 
     n = agents.size
     income_brackets = agents["income_bracket"]
     neighborhoods = agents["neighborhood"]
-    cumsum = get_cumsum(freq)
     
     # computes happiness for each agent
     for i in prange(n):
         nb = neighborhoods[i]
         ib = income_brackets[i]
-        condition = cumsum[nb,ib] / total[nb]
-        agents["happy"][i] = (condition >= happiness_percent)
+        agents["happy"][i] = (proportions[nb, ib] >= happiness_percent)
         
     return agents
 
@@ -93,7 +91,7 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std,
         ("bid", np.float64),
         ("rent_paid", np.float64), # no need for checking tenancy, rent_paid = 0 => not a tenant
         ("priced_out_threshold", np.float64), # use the priced out formula
-        ("theta", np.float32),
+        ("theta", np.float32), # numba doesnt like float16, so we stick to float32 here
     ])
     
     mu = np.log(mean_income) - 0.5 * (log_std ** 2) # math to make mean_income the actual mean of the lognormal distr

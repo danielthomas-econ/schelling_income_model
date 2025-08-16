@@ -1,36 +1,40 @@
-from agents import *
-from houses import *
+from .agents import *
+from .houses import *
 import numpy as np
-from numba import njit, jit
+from numba import njit, jit, prange
 
 "------------------------------------------- cobb-douglas utility function ------------------------------------------"
-# USE A CALL TO get_freq_and_total TO PREVENT DOING ALL THE MATH AGAIN HERE
-@njit
-def utility(θ, # gen a ~uniform(0.6,0.8) array to get some heterogenity, using it as an argument so i can njit the function
-            brackets_start, brackets_end, income, rent):
+# using a call to get_proportions to prevent redoing the math, make sure to update the proportions array appropriately
+@njit(parallel = True)
+def get_utilities(agents, proportions):
+    # find utility agent i gets from moving to neighborhood k
+    n = agents.size
+    utilities = np.zeros((n, 100), dtype = np.float32)
+
+    for i in prange(n):
+        ib = agents["income_bracket"][i]
+        j = agents["neighborhood"][i]
+        income = agents["income"][i]
+        rent = agents["rent_paid"][i]
+        θ = agents["theta"][i]
+        # ------------ disposable income left (should this be rent after moving to k? check the logic here later) ------------ #
+        c = income - rent
+        c_term = c ** (1-θ) # avoids recomputation for each neighborhood
+
+        row_max = 0.0
+        for k in range(100):
+            q_diff = np.maximum(0, proportions[k, ib] - proportions[j, ib])
+            val = (q_diff ** θ) * c_term
+            utilities[i, k] = val
+            if val > row_max:
+                row_max = val
     
-    freq_start = np.bincount(brackets_start, minlength=12)
-    freq_end = np.bincount(brackets_end, minlength=12)
-    n_start = brackets_start.size
-    n_end = brackets_end.size
-    # same logic as the check_happiness function
-    cumsum_start = n_start - np.cumsum(freq_start) + freq_start
-    cumsum_end = n_end - np.cumsum(freq_end) + freq_end
-
-    # percent of popln with >= income bracket b in the two neighborhoods we're comparing
-    quality_start = (cumsum_start / n_start) * 100
-    quality_end = (cumsum_end / n_end) * 100
-
-    # q_start[b] = % with >= than income bracket b in starting neighborhood
-    # vectorized over all the brackets in starting neighborhood
-    q_start = quality_start[brackets_start]
-    q_end = quality_end[brackets_start]
-
-    q_diff = np.maximum(0, q_end - q_start)
-    c = income - rent
-    # utils[i] is utility of agent i gets for moving from neighborhood j to k
-    utils = q_diff ** {θ} * c ** (1-θ)
-    return utils
+        # normalize utility scores on a per agent basis
+        # => 1 = agent's most preferred move, everything else relative to 1
+        if row_max > 0.0:
+            for k in range(100):
+                utilities[i, k] = utilities[i, k]/row_max
+    return utilities 
 
 "--------------------------------------------------- bidding logic --------------------------------------------------"
 @jit
@@ -43,7 +47,7 @@ def place_bid(neighborhood, start_brackets, end_brackets, incomes, tenant, rents
     happy = check_happiness(neighborhood)
     need_to_bid = ~(happy & tenant) # returns True if the agent is not both happy and a tenant, True -> must bid
 
-    utility_bids = β*incomes + λ*utility(start_brackets, end_brackets, incomes, rents)
+    utility_bids = β*incomes + λ*get_utilities(start_brackets, end_brackets, incomes, rents)
     max_bids = δ*incomes
 
     final_bids = np.minimum(utility_bids, max_bids)
