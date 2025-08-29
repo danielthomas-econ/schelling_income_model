@@ -49,9 +49,9 @@ $\theta$ close to 1 is more like Schelling behavior (neighborhood quality only m
 
 #### price update rule:
 we update the house prices for all units in the neighborhood using 
-$P_{j,t+1} = P_{j,t} + \alpha \left(B_{j} - P_{j,t} \right) + \epsilon_{t+1}$,
+$P_{j,t+1} = P_{j,t} + \alpha \left(B - P_{j,t} \right) + \epsilon_{t+1}$,
 where:
-$B_{j} =$ avg winning bid in neighborhood $j$
+$B_{j} =$ avg winning bid this round
 $P_{j} = $  the current rent of house $j$
 $\alpha = $  multiplicative constant giving speed of convergence to average in some sense
 $\epsilon =$ noise term $\sim N(0,\sigma^{2})$, where $\sigma = 0.02\cdot \bar{P}$ (average price)

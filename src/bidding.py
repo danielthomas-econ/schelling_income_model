@@ -4,7 +4,7 @@ import numpy as np
 from numba import njit, jit, prange
 
 "------------------------------------------- cobb-douglas utility function ------------------------------------------"
-# using a call to get_proportions to prevent redoing the math, make sure to update the proportions array appropriately
+# using the proportions argument to prevent redoing the math, make sure to update the proportions array appropriately
 @njit(parallel = True, cache = True)
 def get_utilities(agents, proportions):
     # find utility agent i gets from moving to neighborhood k
@@ -14,6 +14,8 @@ def get_utilities(agents, proportions):
     for i in prange(n):
         ib = agents["income_bracket"][i]
         j = agents["neighborhood"][i]
+        if j == -1:
+            proportions[j,ib] = 0.0 # anything is better than being homeless
         income = agents["income"][i]
         rent = agents["rent_paid"][i]
         θ = agents["theta"][i]
@@ -38,20 +40,36 @@ def get_utilities(agents, proportions):
 
 "--------------------------------------------------- bidding logic --------------------------------------------------"
 @jit(cache = True)
-def place_bid(neighborhood, start_brackets, end_brackets, incomes, tenant, rents,
+def place_bid(agents, utilities,
               β = 0.3, # base fraction of income agent is wtp
               λ = 0.2, # marginal WTP for 1 unit of social utility U
-              δ = 0.6 # max cap on affordability, so that bids dont take up entire agent income
-              ):
-    bids = np.zeros_like(incomes)
-    happy = check_happiness(neighborhood)
-    need_to_bid = ~(happy & tenant) # returns True if the agent is not both happy and a tenant, True -> must bid
+              δ = 0.6): # max cap on affordability, so that bids dont take up entire agent income
+    
+    n_agents, n_neighborhoods = utilities.shape
+    happy = agents["happy"]
+    incomes = agents["income"]
+    rent_paid = agents["rent_paid"]
+    bids = np.zeros(n_agents, dtype = np.float64)
+    # which neighborhood the agents chooses to bid for
+    # -1 => they're not bidding this round
+    neighborhood_chosen = np.full(n_agents, -1, dtype = np.int64)   
 
-    utility_bids = β*incomes + λ*get_utilities(start_brackets, end_brackets, incomes, rents)
-    max_bids = δ*incomes
+    for i in range(n_agents):
+        # agents bid if they're either not happy or not a tenant
+        need_to_bid = not(happy[i] and rent_paid[i]>0) # using rent_paid = 0 as a proxy for non-tenancy
+        
+        if need_to_bid:
+            utiliity_bids = β * incomes[i] + λ * utilities[i,:] # utilities of all neighborhoods for agent i
+            max_bids = δ * incomes[i]
+            # a vector of all the potential bids the agent would make for all 100 neighborhoods
+            final_bids = np.minimum(utiliity_bids, max_bids)
+            max_val = np.max(final_bids)
+            # tiebreaker logic since ties could be common when an agent hits his max bid cap on multiple neighborhoods
+            candidates = np.where(final_bids == max_val)[0]
+            k = candidates[np.random.randint(len(candidates))]
+            # set the agent's bid
+            bids[i] = final_bids[k]
+            # set the agent's chosen neighborhood to move them there if the bid is succcesfful
+            neighborhood_chosen[i] = k
 
-    final_bids = np.minimum(utility_bids, max_bids)
-    # only those who need to bid have their bids updated through boolean masking
-    # bids[i] remains zero if agent i is a happy tenant who wont bid
-    bids[need_to_bid] = final_bids
-    return bids
+    return bids, neighborhood_chosen

@@ -26,8 +26,6 @@ def find_income_brackets(mean_income = mean_income, log_std = log_std, percentil
     cutoffs[mask] = np.exp(mu + log_std * z) # the percentile formula mentioned at the start
     return cutoffs
 
-cutoffs = find_income_brackets()
-
 "----------------- get frequency of each bracket in a neighborhood + total agents in a neighborhood -----------------"
 # writing this outside check_happiness so i can use np.bincount here while still parallelizing with numba later
 # this is so much faster
@@ -37,10 +35,12 @@ def get_freq_and_total(agents):
 
     # 100 -> no. of neighborhoods (0-99), 12 -> no. of income brackets (0-11)
     freq = np.zeros((100,12), dtype = np.int32)
-
+    # avoid homeless people living in neighborhood -1
+    valid = neighborhoods != -1
     # takes a (nb,ib) pair as a coordinate and increments freq[nb,ib] by 1
     # directly fills in the freq values, we're done with updating this now
-    np.add.at(freq, (neighborhoods, income_brackets), 1)
+    if valid.any():
+        np.add.at(freq, (neighborhoods[valid], income_brackets[valid]), 1)
 
     # maybe im a bit too obsessed with declaring datatypes now :)
     # axis = 1 => sum over columns to get no. of agents in each neighborhood
@@ -73,12 +73,14 @@ def check_happiness(agents, proportions, happiness_percent = 0.5):
     for i in prange(n):
         nb = neighborhoods[i]
         ib = income_brackets[i]
+        if nb == -1:
+            agents["happy"][i] = False # homeless people arent happy
         agents["happy"][i] = (proportions[nb, ib] >= happiness_percent)
         
     return agents
 
 "-------------------------------------------- generate the agents finally -------------------------------------------"
-def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std, cutoffs=cutoffs):
+def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std):
     # gen a structured array to store everything
     # low level memory optimization
     # just for 9 columns, it has bought down memory consumption by ~82% vs the list of arrays structure
@@ -88,19 +90,17 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std,
         ("income_bracket", np.uint8),
         ("neighborhood", np.uint8),
         ("happy", np.bool_),
-        ("bid", np.float64),
+        ("house", np.int32),
         ("rent_paid", np.float64), # no need for checking tenancy, rent_paid = 0 => not a tenant
-        ("priced_out_threshold", np.float64), # use the priced out formula
         ("theta", np.float32), # numba doesnt like float16, so we stick to float32 here
     ])
     
     mu = np.log(mean_income) - 0.5 * (log_std ** 2) # math to make mean_income the actual mean of the lognormal distr
-    
+    cutoffs = find_income_brackets()
     incomes = np.random.lognormal(mean=mu, sigma=log_std, size=n_agents)
     brackets = np.searchsorted(cutoffs, incomes) - 1 # sorts the incomes into the cutoffs list
     
     locations = np.random.uniform(0, 10, size=(n_agents, 2))
-    # get_neighborhood_num expects a single location, so vectorize it here:
     # floor the coords and calculate neighborhood numbers
     floored = np.floor(locations).astype(int)
     x_coords = floored[:, 0]
@@ -118,8 +118,7 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std,
     agents["income_bracket"] = brackets
     agents["neighborhood"] = neighborhood
     agents["happy"] = False # initially everyone is depressed :(
-    agents["bid"] = np.zeros(n_agents)
+    agents["house"] = np.full(n_agents,-1)
     agents["rent_paid"] = np.zeros(n_agents)
-    agents["priced_out_threshold"] = np.zeros(n_agents)
     agents["theta"] = np.random.uniform(0.6,0.8, n_agents)
     return agents
