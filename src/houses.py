@@ -85,6 +85,7 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen, β=0.3, λ=0.2, �
     n_agents = agents.shape[0]
     n_houses = houses.shape[0]
     n_neighborhoods = np.max(houses["neighborhood"])+1
+    cutoff_bids = np.zeros(n_neighborhoods)
     vacant_mask = houses["tenant"] == -1
 
     # run an auction in each neighborhood
@@ -105,6 +106,8 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen, β=0.3, λ=0.2, �
         order = np.argsort(-bids[bidders]) # -> argsort gives indices
         sorted_bidders = bidders[order] # use those indices to sort here
         winners = sorted_bidders[:k] # -> anyone beyond k (num vacancies) automatically loses
+        if winners.shape[0] > 0:
+            cutoff_bids[n] = bids[winners[-1]] # gives us the value of the lowest successful bid for each neighborhood
 
         # give winners their vacant homes
         for w, v in zip(winners, vacancies):
@@ -115,4 +118,25 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen, β=0.3, λ=0.2, �
             agents["neighborhood"][w] = n
             vacant_mask[v] = False # idk if this is ever used but yeah safety ig
 
-    return agents, houses
+    return agents, houses, cutoff_bids
+
+"-------------------------------------- update the house prices based on demand -------------------------------------"
+def update_prices(houses, bids, neighborhood_chosen, cutoff_bids,
+                  α = 0.3): # sensitivity of price movements
+    n_neighborhoods = np.max(houses["neighborhood"]) + 1
+    
+    for n in range(n_neighborhoods):
+        mask = (neighborhood_chosen == n)
+        bids_here = bids[mask] # the bids for this neighborhood
+        winners = bids_here[bids_here >= cutoff_bids[n]] # those who bid more than the cutoff won
+        
+        if len(winners) > 0: 
+            B = np.mean(winners)
+            P = houses["value"][houses["neighborhood"]==n] # price of all houses in neighborhood n
+            σ = 0.02*np.mean(P) # array of std devs
+            ε = np.random.normal(0,σ, P.shape) # array of noise
+            new_price = P + α*(B-P) + ε
+            new_price = np.maximum(new_price,0) # avoids negative prices
+            houses["value"][houses["neighborhood"]==n] = new_price # update all prices in the neighborhood
+
+    return houses

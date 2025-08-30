@@ -47,7 +47,7 @@ $c_{i} =$ consumption on goods other than housing $(Y_{i} - P_{i})$.
 $\theta=$ how much agent values neighborhood quality relative to consumption. maybe $\theta_{i} \sim \text{Uniform}(0.6,0.8)$ for heterogenous agents
 $\theta$ close to 1 is more like Schelling behavior (neighborhood quality only matters), close to 0 is like a textbook economic agent.
 
-#### price update rule:
+#### price update rule: (done ✅)
 we update the house prices for all units in the neighborhood using 
 $P_{j,t+1} = P_{j,t} + \alpha \left(B - P_{j,t} \right) + \epsilon_{t+1}$,
 where:
@@ -58,7 +58,7 @@ $\epsilon =$ noise term $\sim N(0,\sigma^{2})$, where $\sigma = 0.02\cdot \bar{P
 
 impose a price floor: house price >= 0
 
-#### agents being priced out:
+#### agents being priced out: (done ✅)
 when rent increases, its possible that staying in the current neighborhood is no longer feasible for an agent
 We define the agent's max WTP for rent in neighborhood $j$ as
 $B_{i}^{\text{stay}}= \text{min}(\beta Y_{i} + \lambda Q_i, \delta Y_i)$
@@ -82,10 +82,9 @@ stop if all agents are happy
 ### future plans
 \> analyze through the lens of a willingness-to-pay (WTP) premium for social utility (moving to a preferred neighborhood).
 \> look at government intervention and conduct rcts to test the impact
+\> write MC sims so that we arent affected by the system getting stuck in some sort of local min
 
 ### concerning things
-IMPORTANT: REWRITE EVERYTHING TO HAVE A M x N STRUCTURED ARRAY STORING ALL OUR DATA FOR EVERY AGENT
-
 looking at the distribution of income brackets, it looks roughly uniformly distributed until the higher income levels.
 i think directly doing probs = np.array(percentiles)/100 and using probs as a cdf could be the cause
 

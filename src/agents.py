@@ -54,7 +54,11 @@ def get_proportion(freq, total):
     # precomputes an array to check what proportion in neighborhood j has >= income bracket i
     proportions = np.zeros((100,12), dtype = np.float32)
     # parallelizing with prange since every nb works on a different row
-    for nb in prange(100):
+    for nb in prange(100): 
+        if total[nb] == 0: # if no agents live there: avoids division by zero errors
+            for ib in range(12):
+                proportions[nb,ib] = 0.0 # no agents => proportions = 0 for every income bracket
+                continue
         running_sum = 0
         # iterate over brackets backwards to get >= bracket count
         for ib in range(11,-1,-1):
@@ -75,7 +79,8 @@ def check_happiness(agents, proportions, happiness_percent = 0.5):
         ib = income_brackets[i]
         if nb == -1:
             agents["happy"][i] = False # homeless people arent happy
-        agents["happy"][i] = (proportions[nb, ib] >= happiness_percent)
+        else:
+            agents["happy"][i] = (proportions[nb, ib] >= happiness_percent)
         
     return agents
 
@@ -88,7 +93,7 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std)
         ("id", np.int32),
         ("income", np.float64),
         ("income_bracket", np.uint8),
-        ("neighborhood", np.uint8),
+        ("neighborhood", np.int8), # int8 works with the -1 neighborhood assignment
         ("happy", np.bool_),
         ("house", np.int32),
         ("rent_paid", np.float64), # no need for checking tenancy, rent_paid = 0 => not a tenant

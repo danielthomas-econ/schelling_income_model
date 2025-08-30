@@ -15,17 +15,22 @@ def get_utilities(agents, proportions):
         ib = agents["income_bracket"][i]
         j = agents["neighborhood"][i]
         if j == -1:
-            proportions[j,ib] = 0.0 # anything is better than being homeless
+            current_prop = 0.0 # setting proportions[j,ib] = 0 in a prange loop is unsafe, using this variable as an intermediary for that
+        else:
+            current_prop = proportions[j,ib]
         income = agents["income"][i]
         rent = agents["rent_paid"][i]
         θ = agents["theta"][i]
         # ------------ disposable income left (should this be rent after moving to k? check the logic here later) ------------ #
         c = income - rent
-        c_term = c ** (1-θ) # avoids recomputation for each neighborhood
+        if c <= 0.0:
+            c_term = 0.0 # no utility if rents exceed your income, thats impossible
+        else:
+            c_term = c ** (1-θ) # avoids recomputation for each neighborhood
 
         row_max = 0.0
         for k in range(100):
-            q_diff = np.maximum(0, proportions[k, ib] - proportions[j, ib])
+            q_diff = np.maximum(0, proportions[k, ib] - current_prop)
             val = (q_diff ** θ) * c_term
             utilities[i, k] = val
             if val > row_max:
@@ -55,21 +60,37 @@ def place_bid(agents, utilities,
     neighborhood_chosen = np.full(n_agents, -1, dtype = np.int64)   
 
     for i in range(n_agents):
+        # checking if non-finite values might be screwing something up [TESTING PURPOSES ONLY, DELETE LATER]
+        if not np.isfinite(incomes[i]):
+            print(f"Non-finite income at agent {i}: {incomes[i]}")
+        if not np.all(np.isfinite(utilities[i,:])):
+            print(f"Non-finite utilities at agent {i}: {utilities[i,:]}")
         # agents bid if they're either not happy or not a tenant
         need_to_bid = not(happy[i] and rent_paid[i]>0) # using rent_paid = 0 as a proxy for non-tenancy
         
         if need_to_bid:
-            utiliity_bids = β * incomes[i] + λ * utilities[i,:] # utilities of all neighborhoods for agent i
+            utility_bids = β * incomes[i] + λ * utilities[i,:] # utilities of all neighborhoods for agent i
             max_bids = δ * incomes[i]
             # a vector of all the potential bids the agent would make for all 100 neighborhoods
-            final_bids = np.minimum(utiliity_bids, max_bids)
+            final_bids = np.minimum(utility_bids, max_bids)
+
+            # i think we're having some errors where nan or inf values are causing issues where the len(candidates) = 0, making random.randint bug out
+            # this should weed that out since we make sure that -np.inf can never be equal to max_val
+            for value in range(final_bids.shape[0]):
+                if not np.isfinite(final_bids[value]):
+                    final_bids[value] = -np.inf
+                    
             max_val = np.max(final_bids)
-            # tiebreaker logic since ties could be common when an agent hits his max bid cap on multiple neighborhoods
-            candidates = np.where(final_bids == max_val)[0]
-            k = candidates[np.random.randint(len(candidates))]
-            # set the agent's bid
-            bids[i] = final_bids[k]
-            # set the agent's chosen neighborhood to move them there if the bid is succcesfful
-            neighborhood_chosen[i] = k
+            if max_val == -np.inf:
+                bids[i] = 0.0
+                neighborhood_chosen[i] = -1
+            else:
+                # tiebreaker logic since ties could be common when an agent hits his max bid cap on multiple neighborhoods
+                candidates = np.where(final_bids == max_val)[0]
+                k = candidates[np.random.randint(len(candidates))] # hopefully now len(candidates) will never be zero
+                # set the agent's bid
+                bids[i] = final_bids[k]
+                # set the agent's chosen neighborhood to move them there if the bid is succcesful
+                neighborhood_chosen[i] = k
 
     return bids, neighborhood_chosen
