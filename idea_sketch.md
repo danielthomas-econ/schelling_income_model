@@ -80,9 +80,10 @@ happiness check -> bids -> price update -> assignment -> happiness check
 stop if all agents are happy
 
 ### future plans
+\> add a `common.py` file with worldwide constants and agents/houses datatypes to have everything changed from one central location
+\> change the neighborhood assignment logic + make it a function so i can use it when initializing both houses and agents
 \> analyze through the lens of a willingness-to-pay (WTP) premium for social utility (moving to a preferred neighborhood).
 \> look at government intervention and conduct rcts to test the impact
-\> write MC sims so that we arent affected by the system getting stuck in some sort of local min
 
 ### concerning things
 looking at the distribution of income brackets, it looks roughly uniformly distributed until the higher income levels.

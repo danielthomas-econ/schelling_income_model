@@ -1,5 +1,3 @@
-from .agents import *
-from .houses import *
 import numpy as np
 from numba import njit, jit, prange
 
@@ -12,6 +10,10 @@ def get_utilities(agents, proportions):
     utilities = np.zeros((n, 100), dtype = np.float32)
 
     for i in prange(n):
+        # skip agents that are already happy, should be a good performance boost
+        if agents["happy"][i]:
+            continue
+
         ib = agents["income_bracket"][i]
         j = agents["neighborhood"][i]
         if j == -1:
@@ -66,7 +68,7 @@ def place_bid(agents, utilities,
         if not np.all(np.isfinite(utilities[i,:])):
             print(f"Non-finite utilities at agent {i}: {utilities[i,:]}")
         # agents bid if they're either not happy or not a tenant
-        need_to_bid = not(happy[i] and rent_paid[i]>0) # using rent_paid = 0 as a proxy for non-tenancy
+        need_to_bid = not(happy[i])
         
         if need_to_bid:
             utility_bids = β * incomes[i] + λ * utilities[i,:] # utilities of all neighborhoods for agent i

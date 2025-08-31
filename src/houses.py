@@ -1,7 +1,5 @@
 import numpy as np
 from numba import njit, jit, prange
-from .agents import *
-
 
 "--------------------------------- create a structured array with all info of houses --------------------------------"
 def initialize_houses(agents):
@@ -41,7 +39,7 @@ def agent_house_mapping(agents, houses):
     for h in range(n_houses):
         t = houses["tenant"][h]
         if t != -1: # we dont assign homeless tenants houses
-            agents["houses"][t] = h
+            agents["house"][t] = h
     return
 "--------------------------------- check if an agent can no longer afford their home --------------------------------"
 """We define the agent's max WTP for rent in neighborhood $j$ as
@@ -116,7 +114,6 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen, β=0.3, λ=0.2, �
             agents["house"][w] = v
             agents["rent_paid"][w] = bids[w]
             agents["neighborhood"][w] = n
-            vacant_mask[v] = False # idk if this is ever used but yeah safety ig
 
     return agents, houses, cutoff_bids
 

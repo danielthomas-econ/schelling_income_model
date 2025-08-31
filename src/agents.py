@@ -1,7 +1,6 @@
 import numpy as np
 import scipy.stats as st
 from numba import njit, jit, prange
-from .houses import * #.houses => relative import, prevents import errors in plots.ipynb
 
 # way to globally access these variables
 mean_income = 460_000 # 4.6 lakhs, avg income in delhi
@@ -58,7 +57,7 @@ def get_proportion(freq, total):
         if total[nb] == 0: # if no agents live there: avoids division by zero errors
             for ib in range(12):
                 proportions[nb,ib] = 0.0 # no agents => proportions = 0 for every income bracket
-                continue
+            continue
         running_sum = 0
         # iterate over brackets backwards to get >= bracket count
         for ib in range(11,-1,-1):
