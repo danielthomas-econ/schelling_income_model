@@ -30,6 +30,7 @@ def initialize_houses(agents):
     return houses
 
 "--------------------------------------- populate the houses column in agents ---------------------------------------"
+@njit(cache = True)
 def agent_house_mapping(agents, houses):
     n_agents = agents.shape[0]
     n_houses = houses.shape[0]
@@ -42,26 +43,24 @@ def agent_house_mapping(agents, houses):
             agents["house"][t] = h
     return
 "--------------------------------- check if an agent can no longer afford their home --------------------------------"
-"""We define the agent's max WTP for rent in neighborhood $j$ as
-$B_{i}^{\text{stay}}= \text{min}(\beta Y_{i} + \lambda Q_i, \delta Y_i)$
-The core logic is identical to bidding, but we had to replace $U$ since that compares two neighborhoods
-We replace it with $Q_{i} = r_{k}$ percent of agents in neighborhood $k$ with >= income to eliminate the comparative nature of $U$."""
 @njit(parallel = True, cache = True)
-def check_priced_out(agents, houses, proportions, β=0.3, λ=0.2, δ=0.4): # removing proportions as an argument causes numba issues
+def check_priced_out(agents, houses, proportions, β=0.3, λ=0.2, δ=0.6): # removing proportions as an argument causes numba issues
     rents = houses["value"] # base it off the current house value, not how much the agent pays for rent
     n_agents = agents.shape[0]
     priced_out_mask = np.zeros(n_agents, dtype=np.bool_)
 
     for i in prange(n_agents):
+        h = agents["house"][i]
+        if h == -1:
+            continue # homeless agents dont have a home they can be priced out of anyways
+        
         nb = agents["neighborhood"][i]
-        if nb == -1: # homeless agents cant be priced out
-            continue
-
         income = agents["income"][i]
         bracket = agents["income_bracket"][i]
         Q_i = proportions[nb, bracket]
-        B_stay = min(β*income + λ*Q_i, δ*income) # priced out logic
-        if rents[i] > B_stay:
+        B_stay = min((β + λ*Q_i)*income, δ*income) # priced out logic
+        rent = houses["value"][h]
+        if rent > B_stay:
             priced_out_mask[i] = True
     
     return priced_out_mask
@@ -76,6 +75,7 @@ def evict_priced_out(agents, houses, priced_out_mask):
                 houses["tenant"][h] = -1 # evict them
                 agents["house"][i] = -1
                 agents["neighborhood"][i] = -1
+                agents["rent_paid"][i] = 0.0 # you don't pay rent if you're homeless
     return
 "---------------------------------------- decide which agent gets which house ---------------------------------------"
 @njit(cache=True)
@@ -115,6 +115,7 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen, β=0.3, λ=0.2, �
             agents["rent_paid"][w] = bids[w]
             agents["neighborhood"][w] = n
 
+    agent_house_mapping(agents, houses) # update the mapping after the allocation is made
     return agents, houses, cutoff_bids
 
 "-------------------------------------- update the house prices based on demand -------------------------------------"

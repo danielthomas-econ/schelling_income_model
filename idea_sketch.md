@@ -1,7 +1,7 @@
 ## agent behavior
 divide agents into different income brackets in a lognormal distribution. we have deciles until the highest tiers, where it becomes 90-95%ile, 95-99%ile, 99%ile+ (done ✅)
 
-perhaps add a pareto tail to the top earners to make it more realistic, because the sim vastly underestimates the number of high earners
+perhaps add a pareto tail to the top earners to make it more realistic, because the sim vastly underestimates the number of high earners (not done yet, might do in the future)
 
 give each agent a location in a 10x10 grid. each 1x1 square is called a neighborhood, assign each one a number (done ✅)
 
@@ -35,7 +35,7 @@ term one: some prpn of $Y_{i}$ + WTP for social utility
 term two: max percent of income agent is willing to spend on rent
 take min so that we don't have unrealistically high bids (like entire $Y_{i}$)
 
-bid zero if the agent is both happy and currently a tenant
+bid zero if the agent is happy
 
 #### utility function: (done ✅)
 cobb douglas utility, then normalize it to be 0-1 
@@ -81,12 +81,10 @@ stop if all agents are happy
 
 ### future plans
 \> add a `common.py` file with worldwide constants and agents/houses datatypes to have everything changed from one central location
-\> change the neighborhood assignment logic + make it a function so i can use it when initializing both houses and agents
-\> analyze through the lens of a willingness-to-pay (WTP) premium for social utility (moving to a preferred neighborhood).
+\> analyze through the lens of a willingness-to-pay (WTP) premium for social utility (moving to a preferred neighborhood). we can change $\theta$ and $\lambda$ to range from 'economic' agents (pure rational) for low values to 'sociological' agents (derive greater utilty from neighborhood)
+\> scatter plot showing correlation between income bracket and avg income of current neighborhood
 \> look at government intervention and conduct rcts to test the impact
 
 ### concerning things
 looking at the distribution of income brackets, it looks roughly uniformly distributed until the higher income levels.
 i think directly doing probs = np.array(percentiles)/100 and using probs as a cdf could be the cause
-
-neighborhoods array seems to be uniformly distributed (intended), but it allocates too many people in neighborhoods 0-5 and too few in 95-100

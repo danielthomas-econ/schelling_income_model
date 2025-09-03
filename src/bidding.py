@@ -24,7 +24,7 @@ def get_utilities(agents, proportions):
         rent = agents["rent_paid"][i]
         θ = agents["theta"][i]
         # ------------ disposable income left (should this be rent after moving to k? check the logic here later) ------------ #
-        c = income - rent
+        c = (income - rent)/income # housing burden relative to income
         if c <= 0.0:
             c_term = 0.0 # no utility if rents exceed your income, thats impossible
         else:
@@ -71,7 +71,7 @@ def place_bid(agents, utilities,
         need_to_bid = not(happy[i])
         
         if need_to_bid:
-            utility_bids = β * incomes[i] + λ * utilities[i,:] # utilities of all neighborhoods for agent i
+            utility_bids = (β + λ * utilities[i,:]) * incomes[i] # utilities of all neighborhoods for agent i
             max_bids = δ * incomes[i]
             # a vector of all the potential bids the agent would make for all 100 neighborhoods
             final_bids = np.minimum(utility_bids, max_bids)

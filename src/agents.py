@@ -104,7 +104,7 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std)
     incomes = np.random.lognormal(mean=mu, sigma=log_std, size=n_agents)
     brackets = np.searchsorted(cutoffs, incomes) - 1 # sorts the incomes into the cutoffs list
     
-    locations = np.random.uniform(0, 10, size=(n_agents, 2))
+    """locations = np.random.uniform(0, 10, size=(n_agents, 2))
     # floor the coords and calculate neighborhood numbers
     floored = np.floor(locations).astype(int)
     x_coords = floored[:, 0]
@@ -112,15 +112,15 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std)
     # we have 100 1x1 neighborhoods in a 10x10 grid
     # start from 0-9 on the bottom row, all the way to 90-99 on the top row
     # so every cell number when labelled like this ends with the floor of the x coord and begins with the floor of the y coord
-    neighborhood = y_coords * 10 + x_coords    
-
+    neighborhood = y_coords * 10 + x_coords"""   # old neighborhood assignment system, i think it caused misalignment bugs. anyways eliminating these calculatations should be more efficient? 
+    
     # initialize agents
     agents = np.zeros(n_agents, dtype=agent_dtype)
 
     agents["id"] = np.arange(n_agents) 
     agents["income"] = incomes
     agents["income_bracket"] = brackets
-    agents["neighborhood"] = neighborhood
+    agents["neighborhood"] = np.full(n_agents,-1) # they all start homeless, eventually get allocated as they bid. test this vs the old neighborhood assignment system
     agents["happy"] = False # initially everyone is depressed :(
     agents["house"] = np.full(n_agents,-1)
     agents["rent_paid"] = np.zeros(n_agents)
