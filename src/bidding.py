@@ -15,11 +15,6 @@ def get_utilities(agents, proportions):
             continue
 
         ib = agents["income_bracket"][i]
-        j = agents["neighborhood"][i]
-        if j == -1:
-            current_prop = 0.0 # setting proportions[j,ib] = 0 in a prange loop is unsafe, using this variable as an intermediary for that
-        else:
-            current_prop = proportions[j,ib]
         income = agents["income"][i]
         rent = agents["rent_paid"][i]
         θ = agents["theta"][i]
@@ -32,8 +27,8 @@ def get_utilities(agents, proportions):
 
         row_max = 0.0
         for k in range(100):
-            q_diff = np.maximum(0, proportions[k, ib] - current_prop)
-            val = (q_diff ** θ) * c_term
+            q = proportions[k, ib] # quality of the new neighborhood
+            val = (q ** θ) * c_term
             utilities[i, k] = val
             if val > row_max:
                 row_max = val

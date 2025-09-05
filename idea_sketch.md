@@ -23,7 +23,7 @@ the homes are bid on by the agents.
 #### bids (done ✅)
 bidding logic involves social WTP, so its a variable we can vary and set counterfactuals for
 
-each agent computes max bid as $B_{i} = \min\left( \beta Y_{i} + \lambda U_{i},\delta Y_{i} \right)$, 
+each agent computes max bid as $B_{i} = \min\left( (\beta + \lambda U_{i})Y_{i},\delta Y_{i} \right)$, 
 where:
 $Y_{i} =$ agent $i$'s income
 $\beta =$ baseline budget fraction (like 0.3)
@@ -38,14 +38,15 @@ take min so that we don't have unrealistically high bids (like entire $Y_{i}$)
 bid zero if the agent is happy
 
 #### utility function: (done ✅)
-cobb douglas utility, then normalize it to be 0-1 
-$U_{i,j,k} = q_{i,j,k}^{\theta} \cdot c_{i,j} ^{1-\theta}$,
+cobb douglas utility, then normalize it to be 0-1. The utility of neighborhood $k$ for agent $i$ is calculated as
+$U_{i,k} = q_{i,k}^{\theta} \cdot c_{i,k} ^{1-\theta}$,
 where:
-$q_{i,j,k} =$ neighborhood quality for agent i in neighborhood j vs neighborhood k
-$q_{j,k} =$ $\text{max}(0,r_{k} - r_{j})$, where $r_{p}$ is the percent of residents in neighborhood p with higher income than our agent
-$c_{i} =$ consumption on goods other than housing $(Y_{i} - P_{i})$.
+$q_{i,k} =$ neighborhood quality for agent i in neighborhood k, which is given by proportion of agents in $k$ with >= income bracket
+$c_{i,k} =$ proportion of income left for consumption on goods other than housing $(Y_{i} - P_{i})/Y_i$.
 $\theta=$ how much agent values neighborhood quality relative to consumption. maybe $\theta_{i} \sim \text{Uniform}(0.6,0.8)$ for heterogenous agents
 $\theta$ close to 1 is more like Schelling behavior (neighborhood quality only matters), close to 0 is like a textbook economic agent.
+
+\> currently, we calculate $c_{i,k}$ based on current rent paid in neighborhood $j$, not rent in the prospective neighborhood $k$. I need to figure out how to do this.
 
 #### price update rule: (done ✅)
 we update the house prices for all units in the neighborhood using 
@@ -61,11 +62,8 @@ impose a price floor: house price >= 0
 #### agents being priced out: (done ✅)
 when rent increases, its possible that staying in the current neighborhood is no longer feasible for an agent
 We define the agent's max WTP for rent in neighborhood $j$ as
-$B_{i}^{\text{stay}}= \text{min}(\beta Y_{i} + \lambda Q_i, \delta Y_i)$
-The core logic is identical to bidding, but we had to replace $U$ since that compares two neighborhoods
-We replace it with $Q_{i} = r_{k}$ percent of agents in neighborhood $k$ with >= income to eliminate the comparative nature of $U$.
+$B_{i}^{\text{stay}}= \text{min}((\beta + \lambda U_{i,j})Y_{i}, \delta Y_i)$
 
-Since $U$ depends on $r_{k}-r_{j} < r_{k} $, $U<Q$ for most situations, especially with larger $\theta$. *This should prevent the agents from being instantly priced out.* It also makes pricing out more dependent on income since $\lambda Q_{i}$ will be fixed for agent $i$ in a given neighborhood, and having the pricing out decision be more income based aligns closer with the Schelling idea for income segregation here.
 
 ## main algorithm
 each neighborhood = one grid cell
@@ -88,3 +86,12 @@ stop if all agents are happy
 ### concerning things
 looking at the distribution of income brackets, it looks roughly uniformly distributed until the higher income levels.
 i think directly doing probs = np.array(percentiles)/100 and using probs as a cdf could be the cause
+
+\>  Correlation with Bidding Success: Analyze the correlation between an agent's c_term and their success rate in winning bids for socially desirable neighborhoods (i.e., neighborhoods where q_diff is high). You should find that agents with lower c_term values (due to high current rent burdens) are less likely to win bids, even for neighborhoods that would make them happy.
+
+
+The Constraint: Because most agents desire higher-income neighbors, and there are inherently few high-income individuals, it becomes a competitive, zero-sum game for these desirable neighbors. Not everyone can achieve their high x% threshold for "better" neighbors, leading to the observed 1-x happiness convergence. The "proportion of the population that can realistically achieve this preference" is limited by the availability of the desired income brackets.
+
+### things to test in the model
+\> test the model without income brackets and see if that gives us more realistic results
+\> test with +-1 income bracket instead of >= income bracket too

@@ -44,8 +44,7 @@ def agent_house_mapping(agents, houses):
     return
 "--------------------------------- check if an agent can no longer afford their home --------------------------------"
 @njit(parallel = True, cache = True)
-def check_priced_out(agents, houses, proportions, β=0.3, λ=0.2, δ=0.6): # removing proportions as an argument causes numba issues
-    rents = houses["value"] # base it off the current house value, not how much the agent pays for rent
+def check_priced_out(agents, houses, proportions, β=0.3, λ=0.2, δ=0.6):
     n_agents = agents.shape[0]
     priced_out_mask = np.zeros(n_agents, dtype=np.bool_)
 
@@ -59,7 +58,7 @@ def check_priced_out(agents, houses, proportions, β=0.3, λ=0.2, δ=0.6): # rem
         bracket = agents["income_bracket"][i]
         Q_i = proportions[nb, bracket]
         B_stay = min((β + λ*Q_i)*income, δ*income) # priced out logic
-        rent = houses["value"][h]
+        rent = houses["value"][h] # base it off the current house value, not how much the agent pays for rent
         if rent > B_stay:
             priced_out_mask[i] = True
     
