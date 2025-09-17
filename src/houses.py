@@ -118,22 +118,25 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen, β=0.3, λ=0.2, �
     return agents, houses, cutoff_bids
 
 "-------------------------------------- update the house prices based on demand -------------------------------------"
-def update_prices(houses, bids, neighborhood_chosen, cutoff_bids,
-                  α = 0.3): # sensitivity of price movements
+def update_prices(houses, neighborhood_chosen, cutoff_bids,
+                  decay_rate = 0.95, # fall in price if supply > demand
+                  max_change = 0.2): # maximum % change in price in one round
     n_neighborhoods = np.max(houses["neighborhood"]) + 1
     
     for n in range(n_neighborhoods):
-        mask = (neighborhood_chosen == n)
-        bids_here = bids[mask] # the bids for this neighborhood
-        winners = bids_here[bids_here >= cutoff_bids[n]] # those who bid more than the cutoff won
-        
-        if len(winners) > 0: 
-            B = np.mean(winners)
-            P = houses["value"][houses["neighborhood"]==n] # price of all houses in neighborhood n
-            σ = 0.02*np.mean(P) # array of std devs
-            ε = np.random.normal(0,σ, P.shape) # array of noise
-            new_price = P + α*(B-P) + ε
-            new_price = np.maximum(new_price,0) # avoids negative prices
-            houses["value"][houses["neighborhood"]==n] = new_price # update all prices in the neighborhood
+        mask = houses["neighborhood"] == n
+        old_price = houses["value"][mask] # current prices
+        vacancies = np.sum(mask & (houses["tenant"] == -1)) # number of vacant units is the available supply
+        demand = np.sum(neighborhood_chosen == n) # demand for neighborhood n
+        cutoff = cutoff_bids[n]
 
+        if demand >= vacancies and cutoff > 0:
+            # update the prices of all houses in neighborhood n to be the cutoff price
+            new_price = np.full_like(old_price,cutoff)
+        else: # cutoff = 0 implies there weren't any bids
+            new_price = old_price * decay_rate # slight price decay
+
+        # clip the house prices so that changes aren't too drastic
+        houses["value"][mask] = np.clip(new_price, a_min = old_price * (1-max_change), a_max = old_price * (1+max_change))
+ 
     return houses

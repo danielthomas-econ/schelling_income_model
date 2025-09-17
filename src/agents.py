@@ -1,29 +1,48 @@
 import numpy as np
-import scipy.stats as st
+import scipy.interpolate as si
 from numba import njit, jit, prange
+import pandas as pd
+import os
 
-# way to globally access these variables
-mean_income = 460_000 # 4.6 lakhs, avg income in delhi
-log_std = 1.2 # lognormal sigma parameter, 1.2 seems to work good in testing
 n_agents = 1_000_000 # 1 mil popln
 np.set_printoptions(suppress=True) # stops scientific numbers
 
+"------------------------- get agents income from a cdf of indian income based on CMIE data -------------------------"
+def get_incomes(agents):
+    here = os.path.dirname(__file__) # current path of agents.py (/src)
+    filepath = os.path.join(here, "..", "data", "income_quantile.csv") # goes one level up to fetch the csv
+    filepath = os.path.abspath(filepath) # gets an actual absolute path
+
+    file = pd.read_csv(filepath) # hard coded path so the notebooks wont face an issue
+    quantiles = file["quantile_value"].values
+    income = file["income"].values
+
+    log_income = np.log(income)
+    # s = 5 gives us a smoother fit than using pchip interpolator
+    # this makes the income plots look less jagged and spiky
+    spline = si.UnivariateSpline(x=quantiles, y=log_income, s=5)
+    uniform = np.random.uniform(0,1,n_agents)
+    agent_incomes = np.exp(spline(uniform)) # pass the uniform array through the quantile to get agent incomes as the output
+
+    return agent_incomes
 "------------------------------------------ computing income brackets once ------------------------------------------"
-def find_income_brackets(mean_income = mean_income, log_std = log_std, percentiles = [0,10,20,30,40,50,60,70,80,90,95,99,100]):
-    # if X is lognormal(mu, sigma), then pth percentile is
-    # x_p = exp(mu + sigma*z_p), where z_p is phi inverse(p)
-    mu = np.log(mean_income) - 0.5 * (log_std**2)
-    probs = np.array(percentiles)/100 # converts probs into a pdf so we can use it to get phi inverse
-    
-    cutoffs = np.empty(probs.shape) 
-    # explictly handle 0 and 1
-    cutoffs[0] = 0 # 0th percentile is zero rupees
-    cutoffs[-1] = np.inf # 100th percentile is infinite income
-    mask = (probs > 0) & (probs < 1) # use a boolean filter to avoid 0 and 1 in further calculations
-    
-    z = st.norm.ppf(probs[mask]) # takes phi inv exluding 0 and 1 with the mask
-    cutoffs[mask] = np.exp(mu + log_std * z) # the percentile formula mentioned at the start
-    return cutoffs
+def find_income_brackets(agents, percentiles = [0,10,20,30,40,50,60,70,80,90,95,99,100]):
+    here = os.path.dirname(__file__) # current path of agents.py (/src)
+    filepath = os.path.join(here, "..", "data", "income_quantile.csv") # goes one level up to fetch the csv
+    filepath = os.path.abspath(filepath) # gets an actual absolute path
+
+    file = pd.read_csv(filepath) # hard coded path so the notebooks wont face an issue
+    quantiles = file["quantile_value"].values
+    income = file["income"].values
+
+    quantile_function = si.PchipInterpolator(quantiles, income)
+    probs = np.array(percentiles)/100 # gets percentiles into a [0,1] range
+    cutoffs = quantile_function(probs) # find the quantiles of the percentiles
+    cutoffs[0] = 0
+    cutoffs[-1] = np.inf # ensures lowest cutoff is zero and that there is no highest cutoff
+
+    brackets = np.searchsorted(cutoffs, agents["income"]) - 1
+    return brackets
 
 "----------------- get frequency of each bracket in a neighborhood + total agents in a neighborhood -----------------"
 # writing this outside check_happiness so i can use np.bincount here while still parallelizing with numba later
@@ -58,7 +77,16 @@ def get_proportion(freq, total):
             for ib in range(12):
                 proportions[nb,ib] = 0.0 # no agents => proportions = 0 for every income bracket
             continue
-        running_sum = 0
+        """# code for the +-1 income bracket logic
+        for ib in range(12):
+            count = freq[nb, ib] # count tracks freq[nb] for ib-1, ib and ib+1, so it follows monetary homophily
+            if ib - 1 >= 0:
+                count += freq[nb, ib - 1]
+            if ib + 1 <= 11:
+                count += freq[nb, ib + 1]
+            proportions[nb, ib] = count / total[nb]"""
+        # code for the >= income bracket logic
+        running_sum = 0 
         # iterate over brackets backwards to get >= bracket count
         for ib in range(11,-1,-1):
             running_sum += freq[nb, ib]
@@ -84,7 +112,7 @@ def check_happiness(agents, proportions, happiness_percent = 0.5):
     return agents
 
 "-------------------------------------------- generate the agents finally -------------------------------------------"
-def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std):
+def generate_agents(n_agents=n_agents):
     # gen a structured array to store everything
     # low level memory optimization
     # just for 9 columns, it has bought down memory consumption by ~82% vs the list of arrays structure
@@ -99,12 +127,7 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std)
         ("theta", np.float32), # numba doesnt like float16, so we stick to float32 here
     ])
     
-    mu = np.log(mean_income) - 0.5 * (log_std ** 2) # math to make mean_income the actual mean of the lognormal distr
-    cutoffs = find_income_brackets()
-    incomes = np.random.lognormal(mean=mu, sigma=log_std, size=n_agents)
-    brackets = np.searchsorted(cutoffs, incomes) - 1 # sorts the incomes into the cutoffs list
-    
-    """locations = np.random.uniform(0, 10, size=(n_agents, 2))
+    locations = np.random.uniform(0, 10, size=(n_agents, 2))
     # floor the coords and calculate neighborhood numbers
     floored = np.floor(locations).astype(int)
     x_coords = floored[:, 0]
@@ -112,15 +135,15 @@ def generate_agents(n_agents=n_agents, mean_income=mean_income, log_std=log_std)
     # we have 100 1x1 neighborhoods in a 10x10 grid
     # start from 0-9 on the bottom row, all the way to 90-99 on the top row
     # so every cell number when labelled like this ends with the floor of the x coord and begins with the floor of the y coord
-    neighborhood = y_coords * 10 + x_coords"""   # old neighborhood assignment system, i think it caused misalignment bugs. anyways eliminating these calculatations should be more efficient? 
+    neighborhood = y_coords * 10 + x_coords # assigns a neighborhood based on their random x and y coords
     
     # initialize agents
     agents = np.zeros(n_agents, dtype=agent_dtype)
 
     agents["id"] = np.arange(n_agents) 
-    agents["income"] = incomes
-    agents["income_bracket"] = brackets
-    agents["neighborhood"] = np.full(n_agents,-1) # they all start homeless, eventually get allocated as they bid. test this vs the old neighborhood assignment system
+    agents["income"] = np.zeros(n_agents)
+    agents["income_bracket"] = np.zeros(n_agents)
+    agents["neighborhood"] = neighborhood
     agents["happy"] = False # initially everyone is depressed :(
     agents["house"] = np.full(n_agents,-1)
     agents["rent_paid"] = np.zeros(n_agents)

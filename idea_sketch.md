@@ -1,11 +1,11 @@
 ## agent behavior
-divide agents into different income brackets in a lognormal distribution. we have deciles until the highest tiers, where it becomes 90-95%ile, 95-99%ile, 99%ile+ (done ✅)
+assign agent income based on `income_quantile.csv`, which is a quantile function of india's income distribution derived from CMIE data (done ✅)
 
-perhaps add a pareto tail to the top earners to make it more realistic, because the sim vastly underestimates the number of high earners (not done yet, might do in the future)
+divide agents into different income brackets. we have deciles until the highest tiers, where it becomes 90-95%ile, 95-99%ile, 99%ile+ (done ✅)
 
 give each agent a location in a 10x10 grid. each 1x1 square is called a neighborhood, assign each one a number (done ✅)
 
-agents want at least x% of their neighbors (other agents living in the neighborhood) to be of an equal or higher income category than them (done ✅)
+agents want at least x% of their neighbors (other agents living in the neighborhood) to be of an equal or higher income category than them (done ✅). currently testing to see the effects of agents wanting x% of their neighbors to have +-1 income bracket as them.
 
 we go through every agent and check their happiness status. one massive list of arrays with True/False to check if agent is happy (done ✅)
 
@@ -49,15 +49,11 @@ $\theta$ close to 1 is more like Schelling behavior (neighborhood quality only m
 \> currently, we calculate $c_{i,k}$ based on current rent paid in neighborhood $j$, not rent in the prospective neighborhood $k$. I need to figure out how to do this.
 
 #### price update rule: (done ✅)
-we update the house prices for all units in the neighborhood using 
-$P_{j,t+1} = P_{j,t} + \alpha \left(B - P_{j,t} \right) + \epsilon_{t+1}$,
-where:
-$B_{j} =$ avg winning bid this round
-$P_{j} = $  the current rent of house $j$
-$\alpha = $  multiplicative constant giving speed of convergence to average in some sense
-$\epsilon =$ noise term $\sim N(0,\sigma^{2})$, where $\sigma = 0.02\cdot \bar{P}$ (average price)
+we update the house prices for all units in the neighborhood using the *reservation price*.
 
-impose a price floor: house price >= 0
+the price of houses in the neighborhood is determined by supply (vacant houses) and demand (number of bids). if demand > supply, house price = lowest winning bid (market clearance price at which supply = demand). if supply > demand, the house prices will decay by a small factor `decay_rate`.
+
+house prices are also clipped so that they dont exceed `max_change`% in a round
 
 #### agents being priced out: (done ✅)
 when rent increases, its possible that staying in the current neighborhood is no longer feasible for an agent
@@ -89,9 +85,27 @@ i think directly doing probs = np.array(percentiles)/100 and using probs as a cd
 
 \>  Correlation with Bidding Success: Analyze the correlation between an agent's c_term and their success rate in winning bids for socially desirable neighborhoods (i.e., neighborhoods where q_diff is high). You should find that agents with lower c_term values (due to high current rent burdens) are less likely to win bids, even for neighborhoods that would make them happy.
 
-
 The Constraint: Because most agents desire higher-income neighbors, and there are inherently few high-income individuals, it becomes a competitive, zero-sum game for these desirable neighbors. Not everyone can achieve their high x% threshold for "better" neighbors, leading to the observed 1-x happiness convergence. The "proportion of the population that can realistically achieve this preference" is limited by the availability of the desired income brackets.
 
-### things to test in the model
-\> test the model without income brackets and see if that gives us more realistic results
-\> test with +-1 income bracket instead of >= income bracket too
+### to do before next commit
+\> scrap the lognormal distribution and base the distribution off a cdf from a real world dataset
+current dataset is CMIE income pyramid (household level)
+
+
+### More things we can implement?
+#### Segregation measures to compute (and what they capture)
+
+Dissimilarity index (D): share of a group that would need to move to achieve even distribution. Simple and widely used in urban segregation literature. (Used in Indian neighborhood papers.) 
+paa2019.populationassociation.org
+CEGA
+
+Isolation index (or exposure): probability that a member of group A meets another member of A in their neighborhood — useful to measure clustering of poor vs rich. 
+paa2019.populationassociation.org
+
+Gini / Theil of neighborhood mean incomes: a measure of economic segregation across space (how unequal neighborhood average incomes are). 
+CEGA
+
+Moran’s I and LISA (Local Indicators of Spatial Association): spatial autocorrelation measures — these tell you whether high incomes cluster in space and where the hotspots are. Good when you have geographies (shapefiles).
+
+Comparisons over multiple scales: compute indices at enumeration-block, ward, and city levels — segregation often looks very different at different spatial scales. 
+SSRN
