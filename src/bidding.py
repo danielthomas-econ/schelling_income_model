@@ -5,7 +5,7 @@ from numba import njit, jit, prange
 "------------------------------------------- cobb-douglas utility function ------------------------------------------"
 # using the proportions argument to prevent redoing the math, make sure to update the proportions array appropriately
 @njit(parallel = True, cache = True)
-def get_utilities(agents, proportions):
+def get_utilities(agents, proportions, current_rents):
     # find utility agent i gets from moving to neighborhood k
     n = agents.size
     utilities = np.zeros((n, 100), dtype = np.float32)
@@ -17,19 +17,16 @@ def get_utilities(agents, proportions):
 
         ib = agents["income_bracket"][i]
         income = agents["income"][i]
-        rent = agents["rent_paid"][i]
         θ = agents["theta"][i]
-        # ------------ disposable income left (should this be rent after moving to k? check the logic here later) ------------ #
-        c = (income - rent)/income # housing burden relative to income
-        if c <= 0.0:
-            c_term = 0.0 # no utility if rents exceed your income, thats impossible
-        else:
-            c_term = c ** (1-θ) # avoids recomputation for each neighborhood
 
         row_max = 0.0
         for k in range(100):
+            rent = current_rents[k]
+            c = (income-rent)/income # what % of income is left after moving into the new prospective neighborhood?
+            if c <= 0.0:
+                c = 0.0
             q = proportions[k, ib] # quality of the new neighborhood
-            val = (q ** θ) * c_term
+            val = (q ** θ) * (c ** (1-θ)) # utility fn
             utilities[i, k] = val
             if val > row_max:
                 row_max = val
@@ -48,10 +45,9 @@ def place_bid(agents, utilities,
               λ = LAMBDA, # marginal WTP for 1 unit of social utility U
               δ = DELTA): # max cap on affordability, so that bids dont take up entire agent income
     
-    n_agents, n_neighborhoods = utilities.shape
+    n_agents = agents.size
     happy = agents["happy"]
     incomes = agents["income"]
-    rent_paid = agents["rent_paid"]
     bids = np.zeros(n_agents, dtype = np.float64)
     # which neighborhood the agents chooses to bid for
     # -1 => they're not bidding this round

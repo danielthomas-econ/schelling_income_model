@@ -4,16 +4,7 @@ from numba import njit, jit, prange
 
 "--------------------------------- create a structured array with all info of houses --------------------------------"
 def initialize_houses(agents):
-    n_agents = agents.shape[0]
-    locations = np.random.uniform(0, 10, size=(n_agents, 2))
-    # floor the coords and calculate neighborhood numbers
-    floored = np.floor(locations).astype(int)
-    x_coords = floored[:, 0]
-    y_coords = floored[:, 1]
-    # we have 100 1x1 neighborhoods in a 10x10 grid
-    # start from 0-9 on the bottom row, all the way to 90-99 on the top row
-    # so every cell number when labelled like this ends with the floor of the x coord and begins with the floor of the y coord
-    neighborhood = y_coords * 10 + x_coords   
+    n_agents = agents.size
 
     houses_datatype = np.dtype([
         ("id", np.int32),
@@ -25,28 +16,29 @@ def initialize_houses(agents):
     houses = np.zeros(n_agents, houses_datatype) 
     houses["id"] = np.arange(n_agents)
     houses["tenant"] = np.full(n_agents, -1)
-    houses["neighborhood"] = neighborhood
+    houses["neighborhood"] = allocate_neighborhood(agents)
     # TESTING THE VALUE VARIABLE TO CHECK HOMELESSNESS
-    houses["value"] = np.full(n_agents, 1_00_000) # assuming median 2bhk price is 30k/m, so 3.6L pa
+    houses["value"] = np.full(n_agents, STARTING_HOUSE_PRICE) # assuming median 2bhk price is 30k/m, so 3.6L pa
     return houses
 
 "--------------------------------------- populate the houses column in agents ---------------------------------------"
 @njit(cache = True)
 def agent_house_mapping(agents, houses):
-    n_agents = agents.shape[0]
-    n_houses = houses.shape[0]
+    n_houses = houses.size
     # we set everyone to -1 and then map their houses later
     # otherwise we run into problems with negative indexing for homeless people
+    agents["neighborhood"][:] = -1
     agents["house"][:] = -1
     for h in range(n_houses):
-        t = houses["tenant"][h]
+        t = houses["tenant"][h] # agent id living in home h
         if t != -1: # we dont assign homeless tenants houses
-            agents["house"][t] = h
+            agents["house"][t] = h # agent t lives in home h
+            agents["neighborhood"][t] = houses["neighborhood"][h] # matches agent and home's neighborhoods
     return
 "--------------------------------- check if an agent can no longer afford their home --------------------------------"
 @njit(parallel = True, cache = True)
-def check_priced_out(agents, houses, proportions, β=0.3, λ=0.2, δ=0.6):
-    n_agents = agents.shape[0]
+def check_priced_out(agents, houses, proportions, β=BETA, λ=LAMBDA, δ=DELTA):
+    n_agents = agents.size
     priced_out_mask = np.zeros(n_agents, dtype=np.bool_)
 
     for i in prange(n_agents):
@@ -67,7 +59,7 @@ def check_priced_out(agents, houses, proportions, β=0.3, λ=0.2, δ=0.6):
 
 "---------------------------------- evict the poor dudes who are now priced out :( ----------------------------------"
 def evict_priced_out(agents, houses, priced_out_mask):
-    n_agents = agents.shape[0]
+    n_agents = agents.size
     for i in range(n_agents):
         h = agents["house"][i] # corresponds to house id they live in
         if priced_out_mask[i]:
@@ -76,12 +68,12 @@ def evict_priced_out(agents, houses, priced_out_mask):
                 agents["house"][i] = -1
                 agents["neighborhood"][i] = -1
                 agents["rent_paid"][i] = 0.0 # you don't pay rent if you're homeless
+
+    agent_house_mapping(agents,houses)
     return
 "---------------------------------------- decide which agent gets which house ---------------------------------------"
 @njit(cache=True)
-def allocate_houses(agents, houses, bids, neighborhood_chosen, β=0.3, λ=0.2, δ=0.4):
-    n_agents = agents.shape[0]
-    n_houses = houses.shape[0]
+def allocate_houses(agents, houses, bids, neighborhood_chosen):
     n_neighborhoods = np.max(houses["neighborhood"])+1
     cutoff_bids = np.zeros(n_neighborhoods)
     vacant_mask = houses["tenant"] == -1
@@ -110,10 +102,11 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen, β=0.3, λ=0.2, �
         # give winners their vacant homes
         for w, v in zip(winners, vacancies):
             houses["tenant"][v] = w
-            houses["value"][v] = bids[w]
             agents["house"][w] = v
-            agents["rent_paid"][w] = bids[w]
             agents["neighborhood"][w] = n
+            # all houses share the same price: the market clearing price
+            houses["value"][v] = cutoff_bids[n]
+            agents["rent_paid"][w] = cutoff_bids[n]
 
     agent_house_mapping(agents, houses) # update the mapping after the allocation is made
     return agents, houses, cutoff_bids
@@ -141,3 +134,13 @@ def update_prices(houses, neighborhood_chosen, cutoff_bids,
         houses["value"][mask] = np.clip(new_price, a_min = old_price * (1-max_change), a_max = old_price * (1+max_change))
  
     return houses
+
+"--------------------------------- get an array of current rent in each neighborhood --------------------------------"
+def get_current_rents(houses, n_neighborhoods=N_NEIGHBORHOODS):
+    current_rents = np.zeros(n_neighborhoods)
+    for i in range(n_neighborhoods):
+        # select all houses in neighborhood i
+        mask = houses['neighborhood'] == i
+        # since all houses have the same rent, rent of neighborhood i = rent of first house in neighborhood i
+        current_rents[i] = houses['value'][np.where(mask)[0][0]]
+    return current_rents

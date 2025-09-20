@@ -74,6 +74,7 @@ happiness check -> bids -> price update -> assignment -> happiness check
 stop if all agents are happy
 
 ### future plans
+\> cool idea: use scikit-optimize to find the optimal value of all my greek letter parameters
 \> **VERY INTERESTING IDEA:** currently, segregation is fuelled by both preference for similar income neighbors and market constraints. try to break down this effect and find out what each effect's contribution to segregation is (like how price effect is decomposed into income and substitution effect). maybe use shapley decomposition?
 how to do it:
 ## Shapley Decomposition Advantages
@@ -146,9 +147,6 @@ The Shapley approach is mathematically rigorous and handles the complexity of yo
 \> look at government intervention and conduct rcts to test the impact
 
 ### concerning things
-looking at the distribution of income brackets, it looks roughly uniformly distributed until the higher income levels.
-i think directly doing probs = np.array(percentiles)/100 and using probs as a cdf could be the cause
-
 \>  Correlation with Bidding Success: Analyze the correlation between an agent's c_term and their success rate in winning bids for socially desirable neighborhoods (i.e., neighborhoods where q_diff is high). You should find that agents with lower c_term values (due to high current rent burdens) are less likely to win bids, even for neighborhoods that would make them happy.
 
 The Constraint: Because most agents desire higher-income neighbors, and there are inherently few high-income individuals, it becomes a competitive, zero-sum game for these desirable neighbors. Not everyone can achieve their high x% threshold for "better" neighbors, leading to the observed 1-x happiness convergence. The "proportion of the population that can realistically achieve this preference" is limited by the availability of the desired income brackets.

@@ -51,11 +51,11 @@ def find_income_brackets(agents, percentiles = PERCENTILES):
 def get_freq_and_total(agents):
     neighborhoods = agents["neighborhood"]
     income_brackets = agents["income_bracket"]
+    freq = np.zeros((N_NEIGHBORHOODS, N_BRACKETS), dtype = np.int32)
 
-    # 100 -> no. of neighborhoods (0-99), 12 -> no. of income brackets (0-11)
-    freq = np.zeros((100,12), dtype = np.int32)
     # avoid homeless people living in neighborhood -1
     valid = neighborhoods != -1
+
     # takes a (nb,ib) pair as a coordinate and increments freq[nb,ib] by 1
     # directly fills in the freq values, we're done with updating this now
     if valid.any():
@@ -71,11 +71,11 @@ def get_freq_and_total(agents):
 @njit(parallel = True, cache = True)
 def get_proportion(freq, total):
     # precomputes an array to check what proportion in neighborhood j has >= income bracket i
-    proportions = np.zeros((100,12), dtype = np.float32)
+    proportions = np.zeros((N_NEIGHBORHOODS,N_BRACKETS), dtype = np.float32)
     # parallelizing with prange since every nb works on a different row
-    for nb in prange(100): 
+    for nb in prange(N_NEIGHBORHOODS): 
         if total[nb] == 0: # if no agents live there: avoids division by zero errors
-            for ib in range(12):
+            for ib in range(N_BRACKETS):
                 proportions[nb,ib] = 0.0 # no agents => proportions = 0 for every income bracket
             continue
         """# code for the +-1 income bracket logic
@@ -89,7 +89,7 @@ def get_proportion(freq, total):
         # code for the >= income bracket logic
         running_sum = 0 
         # iterate over brackets backwards to get >= bracket count
-        for ib in range(11,-1,-1):
+        for ib in range(N_BRACKETS-1, -1,-1):
             running_sum += freq[nb, ib]
             proportions[nb, ib] = running_sum / total[nb]
     return proportions
@@ -128,23 +128,13 @@ def generate_agents(n_agents = N_AGENTS):
         ("theta", np.float32), # numba doesnt like float16, so we stick to float32 here
     ])
     
-    locations = np.random.uniform(0, 10, size=(n_agents, 2))
-    # floor the coords and calculate neighborhood numbers
-    floored = np.floor(locations).astype(int)
-    x_coords = floored[:, 0]
-    y_coords = floored[:, 1]
-    # we have 100 1x1 neighborhoods in a 10x10 grid
-    # start from 0-9 on the bottom row, all the way to 90-99 on the top row
-    # so every cell number when labelled like this ends with the floor of the x coord and begins with the floor of the y coord
-    neighborhood = y_coords * 10 + x_coords # assigns a neighborhood based on their random x and y coords
-    
     # initialize agents
     agents = np.zeros(n_agents, dtype=agent_dtype)
 
     agents["id"] = np.arange(n_agents) 
     agents["income"] = get_incomes(agents)
     agents["income_bracket"] = find_income_brackets(agents)
-    agents["neighborhood"] = neighborhood
+    agents["neighborhood"] = allocate_neighborhood(agents)
     agents["happy"] = False # initially everyone is depressed :(
     agents["house"] = np.full(n_agents,-1)
     agents["rent_paid"] = np.zeros(n_agents)
