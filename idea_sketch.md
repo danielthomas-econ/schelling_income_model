@@ -74,7 +74,73 @@ happiness check -> bids -> price update -> assignment -> happiness check
 stop if all agents are happy
 
 ### future plans
-\> add a `common.py` file with worldwide constants and agents/houses datatypes to have everything changed from one central location
+\> **VERY INTERESTING IDEA:** currently, segregation is fuelled by both preference for similar income neighbors and market constraints. try to break down this effect and find out what each effect's contribution to segregation is (like how price effect is decomposed into income and substitution effect). maybe use shapley decomposition?
+how to do it:
+## Shapley Decomposition Advantages
+
+**1. Handles Non-Additive Interactions**
+Shapley values properly account for all possible interaction effects between your two forces without assuming they're simply additive.
+
+**2. Unique Solution**
+Unlike ad hoc decompositions, Shapley values give you the unique "fair" attribution of each factor's contribution to total segregation.
+
+**3. Axiomatic Foundation**
+Shapley decomposition satisfies desirable properties:
+- **Efficiency**: All segregation is attributed to some factor
+- **Symmetry**: Identical factors get identical attributions  
+- **Dummy**: Factors with no impact get zero attribution
+- **Additivity**: Works even with complex interactions
+
+## Implementation for Your Model
+
+Run these four simulations:
+
+```python
+def shapley_segregation_decomposition():
+    # All possible combinations of your two factors
+    S_none = run_simulation(equal_income=True, no_preferences=True)      # Baseline
+    S_market = run_simulation(real_income=True, no_preferences=True)     # Market only
+    S_pref = run_simulation(equal_income=True, preferences=True)         # Preferences only  
+    S_both = run_simulation(real_income=True, preferences=True)          # Full model
+    
+    # Marginal contributions in both orders
+    market_contribution_first = (S_market - S_none) + (S_both - S_pref)
+    market_contribution_second = (S_both - S_pref) + (S_market - S_none)
+    
+    pref_contribution_first = (S_pref - S_none) + (S_both - S_market)
+    pref_contribution_second = (S_both - S_market) + (S_pref - S_none)
+    
+    # Shapley values (average marginal contributions)
+    shapley_market = (market_contribution_first + market_contribution_second) / 2
+    shapley_preference = (pref_contribution_first + pref_contribution_second) / 2
+    
+    return shapley_market, shapley_preference
+```
+
+## Simple Explanation
+
+Think of Shapley decomposition as asking: **"If I add this factor to any possible combination of other factors, what's its average marginal contribution?"**
+
+For your case:
+- What does income inequality add when there are no social preferences?
+- What does income inequality add when social preferences already exist?
+- Average these to get the "fair" attribution to income inequality
+
+Same logic for social preferences.
+
+## Why Shapley is Better for Your Research
+
+**1. Robustness**: Works regardless of interaction complexity
+**2. Interpretability**: Each factor gets a single, well-defined contribution value
+**3. Academic Credibility**: Standard method in applied economics (used in growth accounting, wage gap decomposition, etc.)
+**4. Policy Relevance**: Tells you which factor to target for maximum segregation reduction
+
+## Research Contribution
+
+Using Shapley decomposition for segregation analysis would be genuinely novel - most urban economics papers use simple counterfactuals. This methodological contribution alone could make your paper publishable.
+
+The Shapley approach is mathematically rigorous and handles the complexity of your two-factor system properly, whereas the simple additive decomposition I initially suggested makes unrealistic assumptions about how market and preference forces interact.
+------------------------------
 \> analyze through the lens of a willingness-to-pay (WTP) premium for social utility (moving to a preferred neighborhood). we can change $\theta$ and $\lambda$ to range from 'economic' agents (pure rational) for low values to 'sociological' agents (derive greater utilty from neighborhood)
 \> scatter plot showing correlation between income bracket and avg income of current neighborhood
 \> look at government intervention and conduct rcts to test the impact

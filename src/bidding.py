@@ -1,3 +1,4 @@
+from .common import *
 import numpy as np
 from numba import njit, jit, prange
 
@@ -43,9 +44,9 @@ def get_utilities(agents, proportions):
 "--------------------------------------------------- bidding logic --------------------------------------------------"
 @jit(cache = True)
 def place_bid(agents, utilities,
-              β = 0.3, # base fraction of income agent is wtp
-              λ = 0.2, # marginal WTP for 1 unit of social utility U
-              δ = 0.6): # max cap on affordability, so that bids dont take up entire agent income
+              β = BETA, # base fraction of income agent is wtp
+              λ = LAMBDA, # marginal WTP for 1 unit of social utility U
+              δ = DELTA): # max cap on affordability, so that bids dont take up entire agent income
     
     n_agents, n_neighborhoods = utilities.shape
     happy = agents["happy"]

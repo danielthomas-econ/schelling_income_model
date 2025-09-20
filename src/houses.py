@@ -1,3 +1,4 @@
+from .common import *
 import numpy as np
 from numba import njit, jit, prange
 
@@ -119,8 +120,8 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen, β=0.3, λ=0.2, �
 
 "-------------------------------------- update the house prices based on demand -------------------------------------"
 def update_prices(houses, neighborhood_chosen, cutoff_bids,
-                  decay_rate = 0.95, # fall in price if supply > demand
-                  max_change = 0.2): # maximum % change in price in one round
+                  decay_rate = DECAY_RATE, # fall in price if supply > demand
+                  max_change = MAX_CHANGE): # maximum % change in price in one round
     n_neighborhoods = np.max(houses["neighborhood"]) + 1
     
     for n in range(n_neighborhoods):

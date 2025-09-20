@@ -1,16 +1,17 @@
+from .common import *
 import numpy as np
 import scipy.interpolate as si
 from numba import njit, jit, prange
 import pandas as pd
 import os
 
-n_agents = 1_000_000 # 1 mil popln
 np.set_printoptions(suppress=True) # stops scientific numbers
 
 "------------------------- get agents income from a cdf of indian income based on CMIE data -------------------------"
 def get_incomes(agents):
     here = os.path.dirname(__file__) # current path of agents.py (/src)
-    filepath = os.path.join(here, "..", "data", "income_quantile.csv") # goes one level up to fetch the csv
+    # goes one level up to fetch the csv
+    filepath = os.path.join(here, "..", "data", "income_quantile_delhi.csv") # now we use delhi specific data instead of india level data
     filepath = os.path.abspath(filepath) # gets an actual absolute path
 
     file = pd.read_csv(filepath) # hard coded path so the notebooks wont face an issue
@@ -21,14 +22,14 @@ def get_incomes(agents):
     # s = 5 gives us a smoother fit than using pchip interpolator
     # this makes the income plots look less jagged and spiky
     spline = si.UnivariateSpline(x=quantiles, y=log_income, s=5)
-    uniform = np.random.uniform(0,1,n_agents)
+    uniform = np.random.uniform(0,1,agents.size)
     agent_incomes = np.exp(spline(uniform)) # pass the uniform array through the quantile to get agent incomes as the output
 
     return agent_incomes
 "------------------------------------------ computing income brackets once ------------------------------------------"
-def find_income_brackets(agents, percentiles = [0,10,20,30,40,50,60,70,80,90,95,99,100]):
+def find_income_brackets(agents, percentiles = PERCENTILES):
     here = os.path.dirname(__file__) # current path of agents.py (/src)
-    filepath = os.path.join(here, "..", "data", "income_quantile.csv") # goes one level up to fetch the csv
+    filepath = os.path.join(here, "..", "data", "income_quantile_delhi.csv") # goes one level up to fetch the csv
     filepath = os.path.abspath(filepath) # gets an actual absolute path
 
     file = pd.read_csv(filepath) # hard coded path so the notebooks wont face an issue
@@ -95,7 +96,7 @@ def get_proportion(freq, total):
 
 "----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
 @njit(parallel = True, cache = True)
-def check_happiness(agents, proportions, happiness_percent = 0.5): 
+def check_happiness(agents, proportions, happiness_percent = DEFAULT_HAPPINESS_PERCENT): 
     n = agents.size
     income_brackets = agents["income_bracket"]
     neighborhoods = agents["neighborhood"]
@@ -112,7 +113,7 @@ def check_happiness(agents, proportions, happiness_percent = 0.5):
     return agents
 
 "-------------------------------------------- generate the agents finally -------------------------------------------"
-def generate_agents(n_agents=n_agents):
+def generate_agents(n_agents = N_AGENTS):
     # gen a structured array to store everything
     # low level memory optimization
     # just for 9 columns, it has bought down memory consumption by ~82% vs the list of arrays structure
@@ -141,11 +142,11 @@ def generate_agents(n_agents=n_agents):
     agents = np.zeros(n_agents, dtype=agent_dtype)
 
     agents["id"] = np.arange(n_agents) 
-    agents["income"] = np.zeros(n_agents)
-    agents["income_bracket"] = np.zeros(n_agents)
+    agents["income"] = get_incomes(agents)
+    agents["income_bracket"] = find_income_brackets(agents)
     agents["neighborhood"] = neighborhood
     agents["happy"] = False # initially everyone is depressed :(
     agents["house"] = np.full(n_agents,-1)
     agents["rent_paid"] = np.zeros(n_agents)
-    agents["theta"] = np.random.uniform(0.6,0.8, n_agents)
+    agents["theta"] = np.random.uniform(THETA_MIN, THETA_MAX, n_agents)
     return agents
