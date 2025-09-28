@@ -68,7 +68,7 @@ def get_freq_and_total(agents):
     return freq, total
 
 "------------ run this outside of check_happiness so i can reuse the logic later for utility evaluations ------------"
-@njit(parallel = True, cache = True)
+njit(parallel = True, cache = True)
 def get_proportion(freq, total):
     # precomputes an array to check what proportion in neighborhood j has >= income bracket i
     proportions = np.zeros((N_NEIGHBORHOODS,N_BRACKETS), dtype = np.float32)
@@ -95,7 +95,7 @@ def get_proportion(freq, total):
     return proportions
 
 "----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
-@njit(parallel = True, cache = True)
+@jit(parallel = True, cache = True)
 def check_happiness(agents, proportions, happiness_percent = DEFAULT_HAPPINESS_PERCENT): 
     n = agents.size
     income_brackets = agents["income_bracket"]

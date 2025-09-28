@@ -46,8 +46,6 @@ $c_{i,k} =$ proportion of income left for consumption on goods other than housin
 $\theta=$ how much agent values neighborhood quality relative to consumption. maybe $\theta_{i} \sim \text{Uniform}(0.6,0.8)$ for heterogenous agents
 $\theta$ close to 1 is more like Schelling behavior (neighborhood quality only matters), close to 0 is like a textbook economic agent.
 
-\> currently, we calculate $c_{i,k}$ based on current rent paid in neighborhood $j$, not rent in the prospective neighborhood $k$. I need to figure out how to do this.
-
 #### price update rule: (done ✅)
 we update the house prices for all units in the neighborhood using the *reservation price*.
 

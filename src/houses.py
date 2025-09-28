@@ -3,7 +3,7 @@ import numpy as np
 from numba import njit, jit, prange
 
 "--------------------------------- create a structured array with all info of houses --------------------------------"
-def initialize_houses(agents):
+def initialize_houses(agents, starting_house_price = STARTING_HOUSE_PRICE):
     n_agents = agents.size
 
     houses_datatype = np.dtype([
@@ -17,12 +17,11 @@ def initialize_houses(agents):
     houses["id"] = np.arange(n_agents)
     houses["tenant"] = np.full(n_agents, -1)
     houses["neighborhood"] = allocate_neighborhood(agents)
-    # TESTING THE VALUE VARIABLE TO CHECK HOMELESSNESS
-    houses["value"] = np.full(n_agents, STARTING_HOUSE_PRICE) # assuming median 2bhk price is 30k/m, so 3.6L pa
+    houses["value"] = np.full(n_agents, starting_house_price)
     return houses
 
 "--------------------------------------- populate the houses column in agents ---------------------------------------"
-@njit(cache = True)
+njit(cache = True)
 def agent_house_mapping(agents, houses):
     n_houses = houses.size
     # we set everyone to -1 and then map their houses later
@@ -36,7 +35,7 @@ def agent_house_mapping(agents, houses):
             agents["neighborhood"][t] = houses["neighborhood"][h] # matches agent and home's neighborhoods
     return
 "--------------------------------- check if an agent can no longer afford their home --------------------------------"
-@njit(parallel = True, cache = True)
+njit(parallel = True, cache = True)
 def check_priced_out(agents, houses, proportions, β=BETA, λ=LAMBDA, δ=DELTA):
     n_agents = agents.size
     priced_out_mask = np.zeros(n_agents, dtype=np.bool_)
@@ -72,11 +71,12 @@ def evict_priced_out(agents, houses, priced_out_mask):
     agent_house_mapping(agents,houses)
     return
 "---------------------------------------- decide which agent gets which house ---------------------------------------"
-@njit(cache=True)
+njit(cache=True)
 def allocate_houses(agents, houses, bids, neighborhood_chosen):
     n_neighborhoods = np.max(houses["neighborhood"])+1
     cutoff_bids = np.zeros(n_neighborhoods)
     vacant_mask = houses["tenant"] == -1
+    num_winners = 0 # initialize it outside the loop to prevent errors when zero bidders/vacancies are there
 
     # run an auction in each neighborhood
     for n in range(n_neighborhoods):
@@ -96,6 +96,8 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen):
         order = np.argsort(-bids[bidders]) # -> argsort gives indices
         sorted_bidders = bidders[order] # use those indices to sort here
         winners = sorted_bidders[:k] # -> anyone beyond k (num vacancies) automatically loses
+        num_winners = len(winners) # to add to the stats array
+        
         if winners.shape[0] > 0:
             cutoff_bids[n] = bids[winners[-1]] # gives us the value of the lowest successful bid for each neighborhood
 
@@ -109,20 +111,32 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen):
             agents["rent_paid"][w] = cutoff_bids[n]
 
     agent_house_mapping(agents, houses) # update the mapping after the allocation is made
-    return agents, houses, cutoff_bids
+    return agents, houses, cutoff_bids, num_winners
 
 "-------------------------------------- update the house prices based on demand -------------------------------------"
-def update_prices(houses, neighborhood_chosen, cutoff_bids,
+def update_prices(agents, houses, neighborhood_chosen, cutoff_bids,
                   decay_rate = DECAY_RATE, # fall in price if supply > demand
-                  max_change = MAX_CHANGE): # maximum % change in price in one round
+                  max_change = MAX_CHANGE,
+                  β = BETA): # maximum % change in price in one round
     n_neighborhoods = np.max(houses["neighborhood"]) + 1
     
     for n in range(n_neighborhoods):
         mask = houses["neighborhood"] == n
+        agents_mask = agents["neighborhood"] == n
         old_price = houses["value"][mask] # current prices
         vacancies = np.sum(mask & (houses["tenant"] == -1)) # number of vacant units is the available supply
         demand = np.sum(neighborhood_chosen == n) # demand for neighborhood n
         cutoff = cutoff_bids[n]
+
+        # minimum sustainable price: WTP of the poorest agent when utility is zero (beta * income)
+        # MSP is like the greatest lower bound on prices
+        # if price < MSP, then markets should move prices upwards since even the poorest agent can easily afford the current rent
+        # if price >= MSP, then this is because agents derive some social utility from staying in the neighborhood
+        incomes = agents["income"][agents_mask]
+        if incomes.size > 0: # avoid bugs where no residents are in the neighborhood
+            P_floor = β * np.min(incomes)
+        else:
+            P_floor = 0.0
 
         if demand >= vacancies and cutoff > 0:
             # update the prices of all houses in neighborhood n to be the cutoff price
@@ -131,8 +145,8 @@ def update_prices(houses, neighborhood_chosen, cutoff_bids,
             new_price = old_price * decay_rate # slight price decay
 
         # clip the house prices so that changes aren't too drastic
-        houses["value"][mask] = np.clip(new_price, a_min = old_price * (1-max_change), a_max = old_price * (1+max_change))
- 
+        clipped = np.clip(new_price, a_min = old_price * (1-max_change), a_max = old_price * (1+max_change))
+        houses["value"][mask] = np.maximum(clipped, P_floor) # ensures price >= MSP
     return houses
 
 "--------------------------------- get an array of current rent in each neighborhood --------------------------------"
