@@ -150,8 +150,12 @@ The Shapley approach is mathematically rigorous and handles the complexity of yo
 The Constraint: Because most agents desire higher-income neighbors, and there are inherently few high-income individuals, it becomes a competitive, zero-sum game for these desirable neighbors. Not everyone can achieve their high x% threshold for "better" neighbors, leading to the observed 1-x happiness convergence. The "proportion of the population that can realistically achieve this preference" is limited by the availability of the desired income brackets.
 
 ### to do before next commit
-\> scrap the lognormal distribution and base the distribution off a cdf from a real world dataset
-current dataset is CMIE income pyramid (household level)
+\> UPDATE README TO INCLUDE THE NEW NONMARKET HOUSING
+\> come up with an initial housing allocation function since rn neighborhoods are allocated but houses arent
+\> find out why the nonmarket housing graph has crazy oscillations all the time
+\> add dissimilarity
+\> explore the feasibility of adding a slight bias so that richer/poorer neighborhoods are more likely to form next to each other
+\> look at Bruch & Mare 2006; Benenson 1999; Zhang 2004
 
 
 ### More things we can implement?
@@ -163,11 +167,3 @@ CEGA
 
 Isolation index (or exposure): probability that a member of group A meets another member of A in their neighborhood — useful to measure clustering of poor vs rich. 
 paa2019.populationassociation.org
-
-Gini / Theil of neighborhood mean incomes: a measure of economic segregation across space (how unequal neighborhood average incomes are). 
-CEGA
-
-Moran’s I and LISA (Local Indicators of Spatial Association): spatial autocorrelation measures — these tell you whether high incomes cluster in space and where the hotspots are. Good when you have geographies (shapefiles).
-
-Comparisons over multiple scales: compute indices at enumeration-block, ward, and city levels — segregation often looks very different at different spatial scales. 
-SSRN

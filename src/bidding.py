@@ -8,7 +8,8 @@ from numba import njit, jit, prange
 def get_utilities(agents, proportions, current_rents):
     # find utility agent i gets from moving to neighborhood k
     n = agents.size
-    utilities = np.zeros((n, 100), dtype = np.float32)
+    n_neighborhoods = np.max(agents["neighborhood"])+1
+    utilities = np.zeros((n, n_neighborhoods), dtype = np.float32)
 
     for i in prange(n):
         # skip agents that are already happy, should be a good performance boost
@@ -20,7 +21,7 @@ def get_utilities(agents, proportions, current_rents):
         θ = agents["theta"][i]
 
         row_max = 0.0
-        for k in range(100):
+        for k in range(n_neighborhoods):
             rent = current_rents[k]
             c = (income-rent)/income # what % of income is left after moving into the new prospective neighborhood?
             if c <= 0.0:
@@ -34,7 +35,7 @@ def get_utilities(agents, proportions, current_rents):
         # normalize utility scores on a per agent basis
         # => 1 = agent's most preferred move, everything else relative to 1
         if row_max > 0.0:
-            for k in range(100):
+            for k in range(n_neighborhoods):
                 utilities[i, k] = utilities[i, k]/row_max
     return utilities 
 
@@ -65,7 +66,7 @@ def place_bid(agents, utilities,
         if need_to_bid:
             utility_bids = (β + λ * utilities[i,:]) * incomes[i] # utilities of all neighborhoods for agent i
             max_bids = δ * incomes[i]
-            # a vector of all the potential bids the agent would make for all 100 neighborhoods
+            # a vector of all the potential bids the agent would make for all neighborhoods
             final_bids = np.minimum(utility_bids, max_bids)
 
             # i think we're having some errors where nan or inf values are causing issues where the len(candidates) = 0, making random.randint bug out

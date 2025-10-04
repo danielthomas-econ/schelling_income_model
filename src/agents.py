@@ -53,13 +53,9 @@ def get_freq_and_total(agents):
     income_brackets = agents["income_bracket"]
     freq = np.zeros((N_NEIGHBORHOODS, N_BRACKETS), dtype = np.int32)
 
-    # avoid homeless people living in neighborhood -1
-    valid = neighborhoods != -1
-
     # takes a (nb,ib) pair as a coordinate and increments freq[nb,ib] by 1
     # directly fills in the freq values, we're done with updating this now
-    if valid.any():
-        np.add.at(freq, (neighborhoods[valid], income_brackets[valid]), 1)
+    np.add.at(freq, (neighborhoods, income_brackets), 1)
 
     # maybe im a bit too obsessed with declaring datatypes now :)
     # axis = 1 => sum over columns to get no. of agents in each neighborhood
@@ -105,8 +101,8 @@ def check_happiness(agents, proportions, happiness_percent = DEFAULT_HAPPINESS_P
     for i in prange(n):
         nb = neighborhoods[i]
         ib = income_brackets[i]
-        if nb == -1:
-            agents["happy"][i] = False # homeless people arent happy
+        if agents["nonmarket_housing"][i] == True:
+            agents["happy"][i] = False # people living in nonmarket housing arent happy
         else:
             agents["happy"][i] = (proportions[nb, ib] >= happiness_percent)
         
@@ -124,6 +120,7 @@ def generate_agents(n_agents = N_AGENTS):
         ("neighborhood", np.int8), # int8 works with the -1 neighborhood assignment
         ("happy", np.bool_),
         ("house", np.int32),
+        ("nonmarket_housing", np.bool_), # does the agent have a real house or do they live in nonmarket housing (proxy for homelessness kinda)
         ("rent_paid", np.float64), # no need for checking tenancy, rent_paid = 0 => not a tenant
         ("theta", np.float32), # numba doesnt like float16, so we stick to float32 here
     ])
@@ -136,7 +133,8 @@ def generate_agents(n_agents = N_AGENTS):
     agents["income_bracket"] = find_income_brackets(agents)
     agents["neighborhood"] = allocate_neighborhood(agents)
     agents["happy"] = False # initially everyone is depressed :(
-    agents["house"] = np.full(n_agents,-1)
+    agents["house"] = np.full(n_agents,-1) # ASSIGN HOUSES INITIALLY TOO
+    agents["nonmarket_housing"] = True
     agents["rent_paid"] = np.zeros(n_agents)
     agents["theta"] = np.random.uniform(THETA_MIN, THETA_MAX, n_agents)
     return agents

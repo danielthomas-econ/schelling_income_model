@@ -14,6 +14,7 @@ In short, it is a modification of Schelling's original model, but preferences ar
 - [Housing logic](#housing-logic)
   - [Price update rule](#price-update-rule)
   - [Pricing out agents](#pricing-out-agents)
+	- [What happens to agents without a home?](#what-happens-to-agents-without-a-home)
 - [Main algorithm](#main-algorithm)
 - [Optimizations used](#optimizations-used)
   - [Benchmarks](#benchmarks)
@@ -92,6 +93,9 @@ This formula is identical to the bidding formula, so an agent's WTP is considere
 
 Since the evicted agent is homeless now (and thus unhappy), he is eligible to bid in the same round itself since evicting priced out happens before the bidding in a round. This also frees up his old home for a new higher bidder to bid on.
 
+#### What happens to agents without a home?
+If an agent is priced out of a home/cannot win any bid to get a home, he is moved into the *nonmarket housing category*. The main reason we do this is to keep agents in a given neighborhood so that their incomes are considered for other agents happiness checks and the average neighborhood income (for visualization). The accumulation of these poorer agents who can't afford market housing will push out richer agents, effectively endogenizing slum creation into the model.
+
 ## Main algorithm
 Our main algorithm is:
 `happiness check` $\to$ `evict priced out` $\to$ `bidding` $\to$ `allocate houses` $\to$ `update prices` $\to$ `happiness check`.
@@ -165,24 +169,4 @@ Note: `dissimilarity` will be calculated soon once I figure out the logic behind
 `THETA_MIN, THETA_MAX` - The minimum and maximum values of an agent's preference for social utility over consumption
 
 ## License
-MIT License
-
-Copyright (c) 2025 Daniel Thomas
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+This project is licensed under the [MIT License](./LICENSE)

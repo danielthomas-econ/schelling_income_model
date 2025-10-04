@@ -21,21 +21,27 @@ def initialize_houses(agents, starting_house_price = STARTING_HOUSE_PRICE):
     return houses
 
 "--------------------------------------- populate the houses column in agents ---------------------------------------"
-njit(cache = True)
+@njit(cache = True)
 def agent_house_mapping(agents, houses):
-    n_houses = houses.size
-    # we set everyone to -1 and then map their houses later
-    # otherwise we run into problems with negative indexing for homeless people
-    agents["neighborhood"][:] = -1
-    agents["house"][:] = -1
-    for h in range(n_houses):
+    # we check if agent's house matches house's agent
+    # if they don't, the agent is homeless and we give him nonmarket housing
+    for i in range(len(agents)):
+        if agents["house"][i] != -1: # they have a home
+            current_house = agents["house"][i]
+            if houses["tenant"][current_house] != i: # mismatch between agent and houses array
+                agents["house"][i] = -1
+                agents["nonmarket_housing"][i] = True
+                agents["rent_paid"][i] = 0.0 # you dont pay rent for nonmarket housing
+
+    for h in range(len(houses)):
         t = houses["tenant"][h] # agent id living in home h
         if t != -1: # we dont assign homeless tenants houses
             agents["house"][t] = h # agent t lives in home h
-            agents["neighborhood"][t] = houses["neighborhood"][h] # matches agent and home's neighborhoods
+            agents["neighborhood"][t] = houses["neighborhood"][h] # matches agent and home's neighborhoods"""
+            agents["nonmarket_housing"][t] = False # they have a market home now
     return
 "--------------------------------- check if an agent can no longer afford their home --------------------------------"
-njit(parallel = True, cache = True)
+@njit(parallel = True, cache = True)
 def check_priced_out(agents, houses, proportions, β=BETA, λ=LAMBDA, δ=DELTA):
     n_agents = agents.size
     priced_out_mask = np.zeros(n_agents, dtype=np.bool_)
@@ -64,14 +70,11 @@ def evict_priced_out(agents, houses, priced_out_mask):
         if priced_out_mask[i]:
             if h != -1: # agent still lives somewhere
                 houses["tenant"][h] = -1 # evict them
-                agents["house"][i] = -1
-                agents["neighborhood"][i] = -1
-                agents["rent_paid"][i] = 0.0 # you don't pay rent if you're homeless
-
+    # besides eviction, agent_house_mapping will take care of the rest of the bookkeeping stuff
     agent_house_mapping(agents,houses)
     return
 "---------------------------------------- decide which agent gets which house ---------------------------------------"
-njit(cache=True)
+@njit(cache=True)
 def allocate_houses(agents, houses, bids, neighborhood_chosen):
     n_neighborhoods = np.max(houses["neighborhood"])+1
     cutoff_bids = np.zeros(n_neighborhoods)
@@ -106,6 +109,7 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen):
             houses["tenant"][v] = w
             agents["house"][w] = v
             agents["neighborhood"][w] = n
+            agents["nonmarket_housing"][w] = False
             # all houses share the same price: the market clearing price
             houses["value"][v] = cutoff_bids[n]
             agents["rent_paid"][w] = cutoff_bids[n]
