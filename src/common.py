@@ -31,7 +31,7 @@ MAX_CHANGE = 0.1        # max % change in one round, prevents insane price swing
 
 # agent behavior parameters
 BETA = 0.3              # baseline fraction of income WTP
-LAMBDA = 0.2            # marginal WTP for social utility
+GAMMA = 0.2             # marginal WTP for social utility
 DELTA = 0.6             # maximum income agent can spend on rent
 
 # theta is the preference for neighborhood quality, we'll uniformly distribute it

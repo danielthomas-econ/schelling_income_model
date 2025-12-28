@@ -42,9 +42,9 @@ def get_utilities(agents, proportions, current_rents):
 "--------------------------------------------------- bidding logic --------------------------------------------------"
 @jit(cache = True)
 def place_bid(agents, utilities,
-              β = BETA, # base fraction of income agent is wtp
-              λ = LAMBDA, # marginal WTP for 1 unit of social utility U
-              δ = DELTA): # max cap on affordability, so that bids dont take up entire agent income
+              beta = BETA, # base fraction of income agent is wtp
+              gamma = GAMMA, # marginal WTP for 1 unit of social utility U
+              delta = DELTA): # max cap on affordability, so that bids dont take up entire agent income
     
     n_agents = agents.size
     happy = agents["happy"]
@@ -64,8 +64,8 @@ def place_bid(agents, utilities,
         need_to_bid = not(happy[i])
         
         if need_to_bid:
-            utility_bids = (β + λ * utilities[i,:]) * incomes[i] # utilities of all neighborhoods for agent i
-            max_bids = δ * incomes[i]
+            utility_bids = (beta + gamma * utilities[i,:]) * incomes[i] # utilities of all neighborhoods for agent i
+            max_bids = delta * incomes[i]
             # a vector of all the potential bids the agent would make for all neighborhoods
             final_bids = np.minimum(utility_bids, max_bids)
 

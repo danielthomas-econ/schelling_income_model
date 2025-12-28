@@ -327,3 +327,117 @@ def plot_stats(stats, agents, houses, n_neighborhoods, last_round):
     axes[1].yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:f}'))
 
     plt.show()
+
+"------------------------------------- same plotting function but for the mc sim ------------------------------------"
+def plot_mc_stats(mc_stats, last_round, confidence=95): # confidence lets us plot CI intervals too
+    index = np.arange(0, last_round + 1)
+    
+    # CI calculations
+    alpha = (100 - confidence) / 100
+    lower_percentile = alpha / 2 * 100
+    upper_percentile = (1 - alpha / 2) * 100
+    
+    # write this once so we dont have to redo it all the time
+    def get_mean_ci(stat_name):
+        data = mc_stats[stat_name][:, :last_round + 1]
+        mean = np.mean(data, axis=0)
+        lower = np.percentile(data, lower_percentile, axis=0)
+        upper = np.percentile(data, upper_percentile, axis=0)
+        return mean, lower, upper
+    
+    # happiness
+    mean, lower, upper = get_mean_ci("happiness")
+    print(f"Final happiness: {mean[-1]:.3f}%")
+    plt.plot(index, mean, label="Average happiness", linewidth=2)
+    plt.fill_between(index, lower, upper, alpha=0.3, label=f"{confidence}% CI")
+    plt.legend()
+    plt.title("Average happiness over time (Monte Carlo)")
+    plt.xlabel("Rounds")
+    plt.ylabel("Happiness (%)")
+    plt.show()
+    
+    # nonmarket housing
+    mean, lower, upper = get_mean_ci("nonmarket_housing")
+    print(f"Final agents in nonmarket housing: {mean[-1]:.3f}%")
+    plt.plot(index, mean, label="Nonmarket housing", linewidth=2)
+    plt.fill_between(index, lower, upper, alpha=0.3, label=f"{confidence}% CI")
+    plt.title("Agents in nonmarket housing over time (Monte Carlo)")
+    plt.xlabel("Rounds")
+    plt.ylabel("Percent of agents")
+    plt.legend()
+    plt.show()
+    
+    # house value
+    mean, lower, upper = get_mean_ci("avg_value")
+    print(f"Final average house value: {mean[-1]:.3f}")
+    plt.plot(index, mean, label="Average house value", linewidth=2)
+    plt.fill_between(index, lower, upper, alpha=0.3, label=f"{confidence}% CI")
+    plt.legend()
+    plt.title("Average house value over time (Monte Carlo)")
+    plt.xlabel("Rounds")
+    plt.ylabel("House value")
+    plt.show()
+    
+    # churn
+    mean, lower, upper = get_mean_ci("churn")
+    print(f"Avg churn: {np.mean(mean):.3f}%")
+    plt.plot(index, mean, label="Churn", linewidth=2)
+    plt.fill_between(index, lower, upper, alpha=0.3, label=f"{confidence}% CI")
+    plt.legend()
+    plt.title("Churn per round (Monte Carlo)")
+    plt.xlabel("Rounds")
+    plt.ylabel("Percent of movers")
+    plt.show()
+    
+    # gini
+    mean, lower, upper = get_mean_ci("gini")
+    print(f"Final Gini: {mean[-1]:.3f}")
+    plt.plot(index, mean, label="Gini", linewidth=2)
+    plt.fill_between(index, lower, upper, alpha=0.3, label=f"{confidence}% CI")
+    plt.legend()
+    plt.title("Avg Gini across neighborhoods per round (Monte Carlo)")
+    plt.xlabel("Rounds")
+    plt.ylabel("Gini index value")
+    plt.show()
+    
+    # theils
+    mean_theil, lower_theil, upper_theil = get_mean_ci("theil")
+    mean_within, lower_within, upper_within = get_mean_ci("theil_within")
+    mean_between, lower_between, upper_between = get_mean_ci("theil_between")
+    
+    print(f"Final Theil: {mean_theil[-1]:.3f}")
+    print(f"Final Theil within: {mean_within[-1]:.3f}")
+    print(f"Final Theil between: {mean_between[-1]:.3f}")
+    print(f"Final global Theil: {mean_within[-1] + mean_between[-1]:.3f} = Theil within + Theil between")
+    
+    plt.plot(index, mean_theil, label="Avg Theil", linewidth=2)
+    plt.plot(index, mean_within, label="Theil within", linewidth=2)
+    plt.plot(index, mean_between, label="Theil between", linewidth=2)
+    
+    plt.fill_between(index, lower_theil, upper_theil, alpha=0.2)
+    plt.fill_between(index, lower_within, upper_within, alpha=0.2)
+    plt.fill_between(index, lower_between, upper_between, alpha=0.2)
+    
+    plt.legend()
+    plt.title("Theil across neighborhoods per round (Monte Carlo)")
+    plt.xlabel("Rounds")
+    plt.ylabel("Theil values")
+    plt.show()
+    
+    # bids
+    mean_bids, lower_bids, upper_bids = get_mean_ci("num_bids")
+    mean_winners, lower_winners, upper_winners = get_mean_ci("winning_bids")
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(index, mean_bids, label="Number of bids", linewidth=2)
+    plt.plot(index, mean_winners, label="Number of winning bids", linewidth=2)
+    
+    plt.fill_between(index, lower_bids, upper_bids, alpha=0.2)
+    plt.fill_between(index, lower_winners, upper_winners, alpha=0.2)
+    
+    plt.legend()
+    plt.title("Number of bids per round (Monte Carlo)")
+    plt.xlabel("Rounds")
+    plt.ylabel("Bids")
+    plt.show()
+   

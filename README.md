@@ -51,13 +51,13 @@ Each agent is given an income, drawn from `/data/income_quantile_delhi.csv`. Thi
 ### Bidding
 If an agent is unhappy, he will bid to move into another neighborhood. Agent $i$ computes his bid for neighborhood $k$ using the formula
 $$
-B_{i,k}= \text{min}((\beta+\lambda U_{i,k})Y_{i}, \delta Y_{i})
+B_{i,k}= \text{min}((\beta+\gamma U_{i,k})Y_{i}, \delta Y_{i})
 $$
 where:
 - $Y_{i}=$ agent $i$'s income
 - $\beta =$ baseline budget fraction he's willing to bid
 - $U_{i,k}=$ utility agent $i$ derives from living in neighborhood $k$ (normalized to be between $0$ and $1$)
-- $\lambda=$ marginal WTP for 1 unit of utility
+- $\gamma=$ marginal WTP for 1 unit of utility
 - $\delta=$ maximum percent of his income he is willing to bid for rent
 
 The first term tells us how much the agent is willing to pay based on the utility derived from the neighborhood $k$. Sometimes, this ends up being unrealistically high, so $\delta Y_{i}$ caps his total bid to a reasonable amount ($60\%$ of income by default).
@@ -87,7 +87,7 @@ Finally, we clip the prices with `max_change` to prevent extreme volatility in p
 ### Pricing out agents
 As rents go up due to demand, it is possible that an agent previously residing in that neighborhood can no longer afford to do so. We define an agent's max WTP for their current neighborhood $j$ as 
 $$
-B^{\text{stay}}_{i,j}=\text{min}((\beta+\lambda U_{i,j})Y_{i}, \delta Y_{i})
+B^{\text{stay}}_{i,j}=\text{min}((\beta+\gamma U_{i,j})Y_{i}, \delta Y_{i})
 $$
 This formula is identical to the bidding formula, so an agent's WTP is considered to be *how much he would've bid for this neighborhood.* If $B^{\text{stay}}_{i,j}<\text{Rent}_{j}$, then the agent's bid would not have cleared the cutoff in the auction phase, so he would not have secured a home here. Therefore, he is evicted since he can no longer afford neighborhood $j$. 
 
@@ -163,7 +163,7 @@ Note: `dissimilarity` will be calculated soon once I figure out the logic behind
 `MAX_CHANGE` - Maximum percent change in one round, meant to prevent large price swings (between 0-1)
 
 `BETA` - The baseline fraction of income an agent is willing to pay for a house 
-`LAMBDA` - The marginal WTP for one unit of utility
+`GAMMA` - The marginal WTP for one unit of utility
 `DELTA` - Maximum percent of income an agent can spend on rent (from 0-1)
 
 `THETA_MIN, THETA_MAX` - The minimum and maximum values of an agent's preference for social utility over consumption

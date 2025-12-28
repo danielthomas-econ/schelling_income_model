@@ -42,7 +42,7 @@ def agent_house_mapping(agents, houses):
     return
 "--------------------------------- check if an agent can no longer afford their home --------------------------------"
 @njit(parallel = True, cache = True)
-def check_priced_out(agents, houses, proportions, β=BETA, λ=LAMBDA, δ=DELTA):
+def check_priced_out(agents, houses, proportions, beta = BETA, gamma = GAMMA, delta = DELTA):
     n_agents = agents.size
     priced_out_mask = np.zeros(n_agents, dtype=np.bool_)
 
@@ -55,7 +55,7 @@ def check_priced_out(agents, houses, proportions, β=BETA, λ=LAMBDA, δ=DELTA):
         income = agents["income"][i]
         bracket = agents["income_bracket"][i]
         Q_i = proportions[nb, bracket]
-        B_stay = min((β + λ*Q_i)*income, δ*income) # priced out logic
+        B_stay = min((beta + gamma*Q_i)*income, delta*income) # priced out logic
         rent = houses["value"][h] # base it off the current house value, not how much the agent pays for rent
         if rent > B_stay:
             priced_out_mask[i] = True
@@ -120,8 +120,8 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen):
 "-------------------------------------- update the house prices based on demand -------------------------------------"
 def update_prices(agents, houses, neighborhood_chosen, cutoff_bids,
                   decay_rate = DECAY_RATE, # fall in price if supply > demand
-                  max_change = MAX_CHANGE,
-                  β = BETA): # maximum % change in price in one round
+                  max_change = MAX_CHANGE, # maximum % change in price in one round
+                  beta = BETA): # same beta as before, used to calculate price floors
     n_neighborhoods = np.max(houses["neighborhood"]) + 1
     
     for n in range(n_neighborhoods):
@@ -138,7 +138,7 @@ def update_prices(agents, houses, neighborhood_chosen, cutoff_bids,
         # if price >= MSP, then this is because agents derive some social utility from staying in the neighborhood
         incomes = agents["income"][agents_mask]
         if incomes.size > 0: # avoid bugs where no residents are in the neighborhood
-            P_floor = β * np.min(incomes)
+            P_floor = beta * np.min(incomes)
         else:
             P_floor = 0.0
 

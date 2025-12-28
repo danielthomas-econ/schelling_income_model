@@ -14,23 +14,23 @@ import shutil
 
 "-------------------------------------- run the sim max_rounds number of times --------------------------------------"
 def sim_one_round(n_agents = N_AGENTS,
-                max_rounds = 100,
-                happiness_percent = DEFAULT_HAPPINESS_PERCENT,
-                starting_house_price = STARTING_HOUSE_PRICE, 
-                β = BETA, 
-                λ = LAMBDA, 
-                δ = DELTA, 
-                θ_min = THETA_MIN,
-                θ_max = THETA_MAX,
-                converge = False,
-                convergence_bound = 5): # will the sim end if we have churn convergence?
+                  n_neighborhoods = N_NEIGHBORHOODS,
+                  max_rounds = 100,
+                  happiness_percent = DEFAULT_HAPPINESS_PERCENT,
+                  starting_house_price = STARTING_HOUSE_PRICE, 
+                  beta = BETA, 
+                  gamma = GAMMA, 
+                  delta = DELTA, 
+                  theta_min = THETA_MIN,
+                  theta_max = THETA_MAX,
+                  converge = False,
+                  convergence_bound = 5): # will the sim end if we have churn convergence?
     # initialization
     agents = generate_agents(n_agents)
-    agents["theta"] = np.random.uniform(θ_min, θ_max, n_agents)
+    agents["theta"] = np.random.uniform(theta_min, theta_max, n_agents)
     houses = initialize_houses(agents)
     houses["value"] = np.full(n_agents, starting_house_price)
 
-    n_neighborhoods = np.max(agents["neighborhood"])+1
     stats = initialize_stats(num_rounds=max_rounds, num_neighborhoods=n_neighborhoods)
     count = 0 # tracks iterations
     prev_house = None # we initialize previous houses = none since ofc its not defined yet
@@ -50,15 +50,15 @@ def sim_one_round(n_agents = N_AGENTS,
             stats["num_bids"][count] = np.count_nonzero(bids)
             stats["winning_bids"][count] = num_winners
 
-        priced_out_mask = check_priced_out(agents, houses, proportions, β, λ, δ) # look at who can no longer afford their home
+        priced_out_mask = check_priced_out(agents, houses, proportions, beta, gamma, delta) # look at who can no longer afford their home
         evict_priced_out(agents, houses, priced_out_mask) # start by evicting them, so they can also participate in this round of bidding
 
         # the whole bidding and house allocation process
         current_rents = get_current_rents(houses)
         utilities = get_utilities(agents, proportions, current_rents)
-        bids, neighborhoods_chosen = place_bid(agents, utilities, β, λ, δ)
+        bids, neighborhoods_chosen = place_bid(agents, utilities, beta, gamma, delta)
         agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen)
-        houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, β = β)
+        houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, beta = beta)
 
         count += 1
         if converge == True:
@@ -79,25 +79,24 @@ def sim_one_round(n_agents = N_AGENTS,
 
 "------------------------------------- run a monte carlo sim to reduce variance -------------------------------------"
 def monte_carlo_sim(n_agents = N_AGENTS,
+                    n_neighborhoods = N_NEIGHBORHOODS,
                     max_rounds = 100,
                     n_runs = 30,
                     happiness_percent = DEFAULT_HAPPINESS_PERCENT,
                     starting_house_price = STARTING_HOUSE_PRICE, 
-                    β = BETA, 
-                    λ = LAMBDA, 
-                    δ = DELTA, 
-                    θ_min = THETA_MIN,
-                    θ_max = THETA_MAX,
+                    beta = BETA, 
+                    gamma = GAMMA, 
+                    delta = DELTA, 
+                    theta_min = THETA_MIN,
+                    theta_max = THETA_MAX,
                     converge = False,
                     convergence_bound = 5): # will the sim end if we have churn convergence?
     # initialization
     agents_og = generate_agents(n_agents)
-    agents_og["theta"] = np.random.uniform(θ_min, θ_max, n_agents)
+    agents_og["theta"] = np.random.uniform(theta_min, theta_max, n_agents)
     houses_og = initialize_houses(agents_og)
     houses_og["value"] = np.full(n_agents, starting_house_price)
     
-
-    n_neighborhoods = np.max(agents_og["neighborhood"])+1
     mc_stats = initialize_mc_stats(num_runs = n_runs, num_rounds=max_rounds, num_agents=agents_og.size, num_neighborhoods=n_neighborhoods)
 
     for current_run in range(n_runs):
@@ -108,7 +107,6 @@ def monte_carlo_sim(n_agents = N_AGENTS,
         count = 0 # tracks iterations
         # ideally we wanna run this sim until all agents are happy, but thats very unlikely to ever happen
         while not np.all(agents["happy"]):
-            print(f"    Round {count}")
             # gets the prpn of agents >= income brackets for all brackets and calculates happiness
             freq, total = get_freq_and_total(agents)
             proportions = get_proportion(freq, total)
@@ -119,15 +117,15 @@ def monte_carlo_sim(n_agents = N_AGENTS,
                 mc_stats["num_bids"][current_run, count] = np.count_nonzero(bids)
                 mc_stats["winning_bids"][current_run, count] = num_winners
 
-            priced_out_mask = check_priced_out(agents, houses, proportions, β, λ, δ) # look at who can no longer afford their home
+            priced_out_mask = check_priced_out(agents, houses, proportions, beta, gamma, delta) # look at who can no longer afford their home
             evict_priced_out(agents, houses, priced_out_mask) # start by evicting them, so they can also participate in this round of bidding
 
             # the whole bidding and house allocation process
             current_rents = get_current_rents(houses)
             utilities = get_utilities(agents, proportions, current_rents)
-            bids, neighborhoods_chosen = place_bid(agents, utilities, β, λ, δ)
+            bids, neighborhoods_chosen = place_bid(agents, utilities, beta, gamma, delta)
             agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen)
-            houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, β = β)
+            houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, beta = beta)
 
             count += 1
             if converge == True:
@@ -142,185 +140,166 @@ def monte_carlo_sim(n_agents = N_AGENTS,
 
     return agents, houses, mc_stats, last_round
 
-"---------------- debug functions: gives us the time of each process to identify any bloat in the sim ---------------"
-def sim_one_round_debug(n_agents = N_AGENTS,
-                        max_rounds = 100,
-                        happiness_percent = DEFAULT_HAPPINESS_PERCENT,
-                        starting_house_price = STARTING_HOUSE_PRICE, 
-                        β = BETA, 
-                        λ = LAMBDA, 
-                        δ = DELTA, 
-                        θ_min = THETA_MIN,
-                        θ_max = THETA_MAX,
-                        converge = False,
-                        convergence_bound = 5): # will the sim end if we have churn convergence?
-    # initialization
-    start = time.time()
-    agents = generate_agents(n_agents)
-    agents["theta"] = np.random.uniform(θ_min, θ_max, n_agents)
-    houses = initialize_houses(agents)
-    houses["value"] = np.full(n_agents, starting_house_price)
-
-    n_neighborhoods = np.max(agents["neighborhood"])+1
-    stats = initialize_stats(num_rounds=max_rounds, num_neighborhoods=n_neighborhoods)
-    end = time.time()
-    print(f"Initialization: {end-start:.4f} secs")
-    count = 0 # tracks iterations
-    prev_house = None # we initialize previous houses = none since ofc its not defined yet
-
-    # ideally we wanna run this sim until all agents are happy, but thats very unlikely to ever happen
-    while not np.all(agents["happy"]):
-        print(f"Round {count}")
-        # gets the prpn of agents >= income brackets for all brackets and calculates happiness
-        start = time.time()
-        freq, total = get_freq_and_total(agents)
-        proportions = get_proportion(freq, total)
-        agents = check_happiness(agents, proportions, happiness_percent)
-        end = time.time()
-        print(f"Check happiness: {end-start:.4f} secs")
-        #print(f"Happiness: {(np.sum(agents["happy"])*100)/n_agents:.3f}%")
-        #print(f"Homelessness: {(np.sum(agents["neighborhood"]==-1)*100)/n_agents:.3f}%")
-        #print()
-
-        start = time.time()
-        stats, prev_house = get_stats(stats, agents, houses, current_round=count, prev_house=prev_house)
-        if count > 0:
-            stats["num_bids"][count] = np.count_nonzero(bids)
-            stats["winning_bids"][count] = num_winners
-        end = time.time()
-        print(f"Stats generation: {end-start:.4f} secs")        
-
-        start = time.time()
-        priced_out_mask = check_priced_out(agents, houses, proportions, β, λ, δ) # look at who can no longer afford their home
-        evict_priced_out(agents, houses, priced_out_mask) # start by evicting them, so they can also participate in this round of bidding
-        end = time.time()
-        print(f"Evict priced out: {end-start:.4f} secs")
-
-        # the whole bidding and house allocation process
-        current_rents = get_current_rents(houses)
-        start = time.time()
-        utilities = get_utilities(agents, proportions, current_rents)
-        end = time.time()
-        print(f"Utility calculation: {end-start:.4f} secs")
-        start = time.time()
-        bids, neighborhoods_chosen = place_bid(agents, utilities, β, λ, δ)
-        end = time.time()
-        print(f"Bidding process: {end-start:.4f} secs")
-        start = time.time()
-        agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen)
-        end = time.time()
-        print(f"House allocation: {end-start:.4f} secs")
-        start = time.time()
-        houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, β = β)
-        end = time.time()
-        print(f"Update prices: {end-start:.4f} secs")
-
-        count += 1
-        if converge == True:
-            if count - convergence_bound >= 0:
-                if np.sum(stats["churn"][count-convergence_bound:count]) == 0: # churn for the past `convergence bound` rounds has been zero
-                    last_round = count-1
-                    break
-        else:
-            if count >= max_rounds: # we use max_rounds if converge flag is false
-                last_round = count-1 
-                break
-
-    return agents, houses, stats, last_round
-
-def monte_carlo_sim_debug(n_agents = N_AGENTS,
-                            max_rounds = 100,
-                            n_runs = 30,
-                            happiness_percent = DEFAULT_HAPPINESS_PERCENT,
-                            starting_house_price = STARTING_HOUSE_PRICE, 
-                            β = BETA, 
-                            λ = LAMBDA, 
-                            δ = DELTA, 
-                            θ_min = THETA_MIN,
-                            θ_max = THETA_MAX,
-                            converge = False,
-                            convergence_bound = 5): # will the sim end if we have churn convergence?
-    # initialization
-    start = time.time()
-    agents_og = generate_agents(n_agents)
-    agents_og["theta"] = np.random.uniform(θ_min, θ_max, n_agents)
-    houses_og = initialize_houses(agents_og)
-    houses_og["value"] = np.full(n_agents, starting_house_price)
+"------------------------- look at the impact changing parameters has on different variables ------------------------"
+def parameter_sweep(n_agents = 10_000, # results are mostly robust to popln size, so using 1m agents here would just slow us down
+                    n_neighborhoods = N_NEIGHBORHOODS,
+                    max_rounds = 100,
+                    n_runs = 5, # using 5 MC runs to save on load
+                    happiness_percent = DEFAULT_HAPPINESS_PERCENT,
+                    starting_house_price = STARTING_HOUSE_PRICE, 
+                    beta = BETA, 
+                    gamma = GAMMA, 
+                    delta = DELTA, 
+                    theta_min = THETA_MIN,
+                    theta_max = THETA_MAX,
+                    params = None, # the parameters we want to evaluate here
+                    sensitivity = 100, # how many values of the parameter do we evaluate for the sweep? higher -> more values evaluated
+                    converge = False,
+                    convergence_bound = 5):
     
+    # ------------------------------------- just making sure params has valid entries ------------------------------------ #
+    if params == None:
+        params = [] # creates a fresh list each call, safer
+    if params is not None and not isinstance(params, list): # enforce type
+        raise TypeError("params must be a list")
+    valid = ["beta", "gamma", "delta", "theta_min", "theta_max"]
+    for i in params:
+        if i not in valid:
+            raise ValueError(f"element {i} not in valid params: ['beta', 'gamma', 'delta', 'theta_min', 'theta_max']")
+    # ------------------------------------------------ param checking done ----------------------------------------------- #
+    
+    # store results here (obviously)
+    all_results = {} # for each param
+    # we also include std dev tracking to plot the results with CIs
+    results_dtype = np.dtype([
+        ("param_value", np.float32), # value of the param for which we get results
+        ("avg_value", np.float32),
+        ("avg_value_std", np.float32),
+        ("nonmarket_housing", np.float32), # percentage
+        ("nonmarket_housing_std", np.float32),
+        ("vacancies", np.float32), # percentage
+        ("vacancies_std", np.float32),
+        ("happiness", np.float32), # percentage
+        ("happiness_std", np.float32),
+        ("gini", np.float32), # percentage
+        ("gini_std", np.float32),
+        ("theil", np.float32), # >= 0, no upper bound
+        ("theil_std", np.float32),
+        ("theil_within", np.float32),
+        ("theil_within_std", np.float32),
+        ("theil_between", np.float32),
+        ("theil_between_std", np.float32),
+        ("dissimilarity", np.float32),
+        ("dissimilarity_std", np.float32),
+        ("churn", np.float32),
+        ("churn_std", np.float32),
+    ])
 
-    n_neighborhoods = np.max(agents_og["neighborhood"])+1
-    mc_stats = initialize_mc_stats(num_runs = n_runs, num_rounds=max_rounds, num_agents=agents_og.size, num_neighborhoods=n_neighborhoods)
-    end = time.time()
-    print(f"Intial initalization time: {end-start:.4f} secs")
+    # set the ranges
+    for param_name in params:
+        if param_name in ["beta", "gamma", "delta"]: # all have same range 0.05-0.95
+            param_values = np.linspace(0.05,0.95, sensitivity) # high sensitivity -> lower gaps in linspace
+        elif param_name == "theta_min":
+            param_values = np.linspace(0.1, theta_max-0.05, sensitivity) # bounded above by theta_max
+        elif param_name == "theta_max":
+            param_values = np.linspace(theta_min + 0.05, 0.95, sensitivity) # bounded below
+        
+        # initialize a new results array for this param
+        # len param_values -> one entry for each column for each param value
+        results = np.zeros(len(param_values), dtype = results_dtype)
+        for idx, param_val in enumerate(param_values):
+            print(f"Running sim at {param_name} = {param_val:.4f}, {idx+1}/{len(param_values)}")
 
-    for current_run in range(n_runs):
-        print(f"Running run {current_run+1}")
-        print()
-        agents = agents_og.copy()
-        houses = houses_og.copy()
-        count = 0 # tracks iterations
-        # ideally we wanna run this sim until all agents are happy, but thats very unlikely to ever happen
-        while not np.all(agents["happy"]):
-            print(f"    Round {count}")
-            # gets the prpn of agents >= income brackets for all brackets and calculates happiness
-            start = time.time()
-            freq, total = get_freq_and_total(agents)
-            proportions = get_proportion(freq, total)
-            agents = check_happiness(agents, proportions, happiness_percent)
-            end = time.time()
-            print(f"Check happiness: {end-start:.4f} secs")
+            # we use all the kwargs passed into the function as is, just changing the value of the current param being swept
+            kwargs = {
+                "n_agents": n_agents,
+                "n_neighborhoods": n_neighborhoods,
+                "max_rounds": max_rounds,
+                "n_runs": n_runs,
+                "happiness_percent": happiness_percent,
+                "starting_house_price": starting_house_price,
+                "beta": beta,
+                "gamma": gamma,
+                "delta": delta,
+                "theta_min": theta_min,
+                "theta_max": theta_max,
+                "converge": converge,
+                "convergence_bound": convergence_bound
+            }
+            kwargs[param_name] = param_val # the only update to kwargs each round
 
-            start = time.time()
-            mc_stats = get_mc_stats(mc_stats, agents, houses, run_id = current_run, current_round=count)
-            if count > 0:
-                mc_stats["num_bids"][current_run, count] = np.count_nonzero(bids)
-                mc_stats["winning_bids"][current_run, count] = num_winners
-            end = time.time()
-            print(f"Stats generation: {end-start:.4f} secs")         
+            # run the mc sim with all the given arguments + the param value for this iteration
+            agents, houses, mc_stats, last_round = monte_carlo_sim(**kwargs)
+            results["param_value"][idx] = param_val # store the param value corresponding to the results
 
-            start = time.time()
-            priced_out_mask = check_priced_out(agents, houses, proportions, β, λ, δ) # look at who can no longer afford their home
-            evict_priced_out(agents, houses, priced_out_mask) # start by evicting them, so they can also participate in this round of bidding
-            end = time.time()
-            print(f"Evict priced out: {end-start:.4f} secs")
+            # looping the print statement instead of manually doing it, thanks Claude
+            metrics_final = ["avg_value", "nonmarket_housing", "vacancies", "happiness", "gini", "theil", "theil_within", "theil_between"]
+            for metric in metrics_final:
+                final_values = mc_stats[metric][:, last_round]
+                results[metric][idx] = np.mean(final_values)
+                results[f"{metric}_std"][idx] = np.std(final_values)
 
-            # the whole bidding and house allocation process
-            current_rents = get_current_rents(houses)
-            start = time.time()
-            utilities = get_utilities(agents, proportions, current_rents)
-            end = time.time()
-            print(f"Utility calculation: {end-start:.4f} secs")
-            start = time.time()
-            bids, neighborhoods_chosen = place_bid(agents, utilities, β, λ, δ)
-            end = time.time()
-            print(f"Bidding process: {end-start:.4f} secs")
-            start = time.time()
-            agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen)
-            end = time.time()
-            print(f"Allocating houses: {end-start:.4f} secs")
-            start = time.time()
-            houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, β = β)
-            end = time.time()
-            print(f"Update prices: {end-start:.4f} secs")
+            # we want an avg over all rounds for churn, so we have to treat it a bit differently
+            # unlike the other params where the last round info is enough
+            avg_churn_per_run = np.mean(mc_stats["churn"][:, 1:last_round+1], axis=1) # axis = 1 => sum along columns, gives us avg for each run instead of each round
+            results["churn"][idx] = np.mean(avg_churn_per_run)
+            results["churn_std"][idx] = np.std(avg_churn_per_run)
 
-            count += 1
-            if converge == True:
-                if count - convergence_bound >= 0:
-                    if np.sum(mc_stats["churn"][count-convergence_bound:count]) == 0: # churn for the past `convergence bound` rounds has been zero
-                        last_round = count-1
-                        break
-            else:
-                if count >= max_rounds: # we use max_rounds if converge flag is false
-                    last_round = count-1 
-                    break
+            print(f"Happiness: {results["happiness"][idx]:3f}% ± {results["happiness_std"][idx]:.2f}")
+            print(f"Nonmarket housing: {results["nonmarket_housing"][idx]:.3f}% ± {results["nonmarket_housing_std"][idx]:.2f}")
+            print()
+            # clears up memory, esp since mc_stats can be quite big
+            del agents, houses, mc_stats
 
-    return agents, houses, mc_stats, last_round
+        all_results[param_name] = results # save the results for a given parameter in its corresponding key
+
+    return all_results
+
+"-------------------------------------- plot the results of the parameter sweep -------------------------------------"
+def plot_parameter_sweep(all_results, save_path=None):
+    fig, axes = plt.subplots(3,2,figsize=(15,12))
+    axes = axes.flatten() # gives us 1d indexing
+
+    # all the metrics we'll plot
+    metrics = [
+        ("happiness", "Happiness (%)"),
+        ("nonmarket_housing", "Nonmarket Housing (%)"),
+        ("gini", "Gini Index"),
+        ("theil_between", "Theil Between"),
+        ("churn", "Average Churn (%)"),
+        ("avg_value", "Average House Value (₹)")
+    ]
+
+    # much better way to plot all at once instead of doing it all individually, once again thanks to Claude
+    for param_name, results in all_results.items():
+        param_values = results["param_value"]
+        for idx, (metric, label) in enumerate(metrics):
+            ax = axes[idx]
+            mean_vals = results[metric]
+            std_vals = results[f"{metric}_std"]
+
+            ax.plot(param_values, mean_vals, label = param_name)
+            # plot CIs
+            ax.fill_between(param_values, mean_vals - std_vals, mean_vals + std_vals, alpha = 0.5)
+
+            ax.set_xlabel(f"Parameter value")
+            ax.set_ylabel(label)
+            ax.set_title(f"{label} vs {param_name}")
+            ax.legend()
+            ax.grid(True, alpha = 0.3)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, bbox_inches = "tight")
+        print(f"Saved the parameter sweep plot to {save_path}")
+    else:
+        plt.show()
+
 
 # full disclosure:
 # i had no idea how to write the plot_segregation_grid or the create_segregation_animation functions
 # so i vibe coded them with Claude
 # i understand how it works though
-
 "---------------------------- to visualize the segregation with a heatmap of avg income ----------------------------"
 def plot_segregation_grid(stats, last_round, save_path=None):
     # Determine grid layout based on number of rounds
@@ -471,3 +450,176 @@ def create_segregation_animation(stats, last_round, save_path='segregation_anima
     shutil.rmtree(temp_dir)
     
     print(f"Animation saved to {save_path}")
+
+"---------------- debug functions: gives us the time of each process to identify any bloat in the sim ---------------"
+def sim_one_round_debug(n_agents = N_AGENTS,
+                        n_neighborhoods = N_NEIGHBORHOODS,
+                        max_rounds = 100,
+                        happiness_percent = DEFAULT_HAPPINESS_PERCENT,
+                        starting_house_price = STARTING_HOUSE_PRICE, 
+                        beta = BETA, 
+                        gamma = GAMMA, 
+                        delta = DELTA, 
+                        theta_min = THETA_MIN,
+                        theta_max = THETA_MAX,
+                        converge = False,
+                        convergence_bound = 5): # will the sim end if we have churn convergence?
+    # initialization
+    start = time.time()
+    agents = generate_agents(n_agents)
+    agents["theta"] = np.random.uniform(theta_min, theta_max, n_agents)
+    houses = initialize_houses(agents)
+    houses["value"] = np.full(n_agents, starting_house_price)
+
+    stats = initialize_stats(num_rounds=max_rounds, num_neighborhoods=n_neighborhoods)
+    end = time.time()
+    print(f"Initialization: {end-start:.4f} secs")
+    count = 0 # tracks iterations
+    prev_house = None # we initialize previous houses = none since ofc its not defined yet
+
+    # ideally we wanna run this sim until all agents are happy, but thats very unlikely to ever happen
+    while not np.all(agents["happy"]):
+        print(f"Round {count}")
+        # gets the prpn of agents >= income brackets for all brackets and calculates happiness
+        start = time.time()
+        freq, total = get_freq_and_total(agents)
+        proportions = get_proportion(freq, total)
+        agents = check_happiness(agents, proportions, happiness_percent)
+        end = time.time()
+        print(f"Check happiness: {end-start:.4f} secs")
+        #print(f"Happiness: {(np.sum(agents["happy"])*100)/n_agents:.3f}%")
+        #print(f"Homelessness: {(np.sum(agents["neighborhood"]==-1)*100)/n_agents:.3f}%")
+        #print()
+
+        start = time.time()
+        stats, prev_house = get_stats(stats, agents, houses, current_round=count, prev_house=prev_house)
+        if count > 0:
+            stats["num_bids"][count] = np.count_nonzero(bids)
+            stats["winning_bids"][count] = num_winners
+        end = time.time()
+        print(f"Stats generation: {end-start:.4f} secs")        
+
+        start = time.time()
+        priced_out_mask = check_priced_out(agents, houses, proportions, beta, gamma, delta) # look at who can no longer afford their home
+        evict_priced_out(agents, houses, priced_out_mask) # start by evicting them, so they can also participate in this round of bidding
+        end = time.time()
+        print(f"Evict priced out: {end-start:.4f} secs")
+
+        # the whole bidding and house allocation process
+        current_rents = get_current_rents(houses)
+        start = time.time()
+        utilities = get_utilities(agents, proportions, current_rents)
+        end = time.time()
+        print(f"Utility calculation: {end-start:.4f} secs")
+        start = time.time()
+        bids, neighborhoods_chosen = place_bid(agents, utilities, beta, gamma, delta)
+        end = time.time()
+        print(f"Bidding process: {end-start:.4f} secs")
+        start = time.time()
+        agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen)
+        end = time.time()
+        print(f"House allocation: {end-start:.4f} secs")
+        start = time.time()
+        houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, beta = beta)
+        end = time.time()
+        print(f"Update prices: {end-start:.4f} secs")
+
+        count += 1
+        if converge == True:
+            if count - convergence_bound >= 0:
+                if np.sum(stats["churn"][count-convergence_bound:count]) == 0: # churn for the past `convergence bound` rounds has been zero
+                    last_round = count-1
+                    break
+        else:
+            if count >= max_rounds: # we use max_rounds if converge flag is false
+                last_round = count-1 
+                break
+
+    return agents, houses, stats, last_round
+
+def monte_carlo_sim_debug(n_agents = N_AGENTS,
+                          n_neighborhoods = N_NEIGHBORHOODS,
+                          max_rounds = 100,
+                          n_runs = 30,
+                          happiness_percent = DEFAULT_HAPPINESS_PERCENT,
+                          starting_house_price = STARTING_HOUSE_PRICE, 
+                          beta = BETA, 
+                          gamma = GAMMA, 
+                          delta = DELTA, 
+                          theta_min = THETA_MIN,
+                          theta_max = THETA_MAX,
+                          converge = False,
+                          convergence_bound = 5): # will the sim end if we have churn convergence?
+    # initialization
+    start = time.time()
+    agents_og = generate_agents(n_agents)
+    agents_og["theta"] = np.random.uniform(theta_min, theta_max, n_agents)
+    houses_og = initialize_houses(agents_og)
+    houses_og["value"] = np.full(n_agents, starting_house_price)
+    
+    mc_stats = initialize_mc_stats(num_runs = n_runs, num_rounds=max_rounds, num_agents=agents_og.size, num_neighborhoods=n_neighborhoods)
+    end = time.time()
+    print(f"Intial initalization time: {end-start:.4f} secs")
+
+    for current_run in range(n_runs):
+        print(f"Running run {current_run+1}")
+        print()
+        agents = agents_og.copy()
+        houses = houses_og.copy()
+        count = 0 # tracks iterations
+        # ideally we wanna run this sim until all agents are happy, but thats very unlikely to ever happen
+        while not np.all(agents["happy"]):
+            print(f"    Round {count}")
+            # gets the prpn of agents >= income brackets for all brackets and calculates happiness
+            start = time.time()
+            freq, total = get_freq_and_total(agents)
+            proportions = get_proportion(freq, total)
+            agents = check_happiness(agents, proportions, happiness_percent)
+            end = time.time()
+            print(f"Check happiness: {end-start:.4f} secs")
+
+            start = time.time()
+            mc_stats = get_mc_stats(mc_stats, agents, houses, run_id = current_run, current_round=count)
+            if count > 0:
+                mc_stats["num_bids"][current_run, count] = np.count_nonzero(bids)
+                mc_stats["winning_bids"][current_run, count] = num_winners
+            end = time.time()
+            print(f"Stats generation: {end-start:.4f} secs")         
+
+            start = time.time()
+            priced_out_mask = check_priced_out(agents, houses, proportions, beta, gamma, delta) # look at who can no longer afford their home
+            evict_priced_out(agents, houses, priced_out_mask) # start by evicting them, so they can also participate in this round of bidding
+            end = time.time()
+            print(f"Evict priced out: {end-start:.4f} secs")
+
+            # the whole bidding and house allocation process
+            current_rents = get_current_rents(houses)
+            start = time.time()
+            utilities = get_utilities(agents, proportions, current_rents)
+            end = time.time()
+            print(f"Utility calculation: {end-start:.4f} secs")
+            start = time.time()
+            bids, neighborhoods_chosen = place_bid(agents, utilities, beta, gamma, delta)
+            end = time.time()
+            print(f"Bidding process: {end-start:.4f} secs")
+            start = time.time()
+            agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen)
+            end = time.time()
+            print(f"Allocating houses: {end-start:.4f} secs")
+            start = time.time()
+            houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, beta=beta)
+            end = time.time()
+            print(f"Update prices: {end-start:.4f} secs")
+
+            count += 1
+            if converge == True:
+                if count - convergence_bound >= 0:
+                    if np.sum(mc_stats["churn"][count-convergence_bound:count]) == 0: # churn for the past `convergence bound` rounds has been zero
+                        last_round = count-1
+                        break
+            else:
+                if count >= max_rounds: # we use max_rounds if converge flag is false
+                    last_round = count-1 
+                    break
+
+    return agents, houses, mc_stats, last_round
