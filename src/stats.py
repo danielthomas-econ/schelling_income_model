@@ -86,6 +86,7 @@ def get_stats(stats, agents, houses, current_round, prev_house = None):
 
     return stats, agents["house"].copy() # -> prev_house for the next round
 
+"----------------------------------------- initializing for monte carlo runs ----------------------------------------"
 # the next two functions are the same as the two above, but with an extra dimension for number of runs
 # only diff is we can store prev_house in stats itself here
 def initialize_mc_stats(num_runs, num_rounds, num_agents, num_neighborhoods):
@@ -110,6 +111,7 @@ def initialize_mc_stats(num_runs, num_rounds, num_agents, num_neighborhoods):
     stats = np.zeros((), dtype=stats_dtype)  # single structured record
     return stats
 
+"------------------------------------------- the actual mc stats collector ------------------------------------------"
 def get_mc_stats(mc_stats, agents, houses, run_id, current_round):
     n_agents = agents.size
     n_neighborhoods = np.max(agents["neighborhood"]) + 1
@@ -339,10 +341,27 @@ def plot_mc_stats(mc_stats, last_round, confidence=95): # confidence lets us plo
     
     # write this once so we dont have to redo it all the time
     def get_mean_ci(stat_name):
-        data = mc_stats[stat_name][:, :last_round + 1]
-        mean = np.mean(data, axis=0)
-        lower = np.percentile(data, lower_percentile, axis=0)
-        upper = np.percentile(data, upper_percentile, axis=0)
+        data = mc_stats[stat_name][:, :last_round + 1] # get the data for the relevant time period
+
+        # get each value for each round
+        mean = np.zeros(last_round + 1)
+        lower = np.zeros(last_round + 1)
+        upper = np.zeros(last_round + 1)
+
+        for t in range(last_round + 1):
+            # keep only runs that are alive at round t bcz MC runs are variable in length
+            vals = data[:, t]
+            vals = vals[vals != 0]  # zero means run already terminated
+
+            if vals.size > 0:
+                mean[t] = np.mean(vals)
+                lower[t] = np.percentile(vals, lower_percentile)
+                upper[t] = np.percentile(vals, upper_percentile)
+            else:
+                mean[t] = np.nan
+                lower[t] = np.nan
+                upper[t] = np.nan
+
         return mean, lower, upper
     
     # happiness

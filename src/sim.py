@@ -26,6 +26,7 @@ def sim_one_round(n_agents = N_AGENTS,
                   converge = False,
                   convergence_bound = 5): # will the sim end if we have churn convergence?
     # initialization
+    start = time.time()
     agents = generate_agents(n_agents)
     agents["theta"] = np.random.uniform(theta_min, theta_max, n_agents)
     houses = initialize_houses(agents)
@@ -45,11 +46,6 @@ def sim_one_round(n_agents = N_AGENTS,
         print(f"Happiness: {(np.sum(agents["happy"])*100)/n_agents:.3f}%")
         print()
 
-        stats, prev_house = get_stats(stats, agents, houses, current_round=count, prev_house=prev_house)
-        if count > 0:
-            stats["num_bids"][count] = np.count_nonzero(bids)
-            stats["winning_bids"][count] = num_winners
-
         priced_out_mask = check_priced_out(agents, houses, proportions, beta, gamma, delta) # look at who can no longer afford their home
         evict_priced_out(agents, houses, priced_out_mask) # start by evicting them, so they can also participate in this round of bidding
 
@@ -59,6 +55,12 @@ def sim_one_round(n_agents = N_AGENTS,
         bids, neighborhoods_chosen = place_bid(agents, utilities, beta, gamma, delta)
         agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen)
         houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, beta = beta)
+
+        # log the data
+        stats, prev_house = get_stats(stats, agents, houses, current_round=count, prev_house=prev_house)
+        if count > 0:
+            stats["num_bids"][count] = np.count_nonzero(bids)
+            stats["winning_bids"][count] = num_winners
 
         count += 1
         if converge == True:
@@ -75,6 +77,36 @@ def sim_one_round(n_agents = N_AGENTS,
                 last_round = count-1 
                 break
 
+    # plot happiness over time
+    index = np.arange(0, last_round+1) # our x axis
+    plt.plot(index, stats["happiness"][:last_round+1], label = "Happiness")
+    plt.legend()
+    plt.title("Happiness over time")
+    plt.xlabel("Rounds")
+    plt.ylabel("Happiness (%)")
+    plt.show()
+
+    # plot happiness by income bracket
+    max_brackets = np.max(agents["income_bracket"]) + 1 # we must add one to this to account for zero being an income bracket
+    index = np.arange(max_brackets)
+    happy = np.zeros(max_brackets) 
+
+    # print the output in text too
+    for i in range(max_brackets):
+        mask = agents["income_bracket"] == i
+        happy_ib = np.sum(agents["happy"][mask])
+        total_ib = np.size(agents[mask])
+        happy[i] = (happy_ib*100)/total_ib # prpn of happy agents
+        print(f"Income bracket {i}: {happy_ib}/{total_ib} agents happy, {round(happy[i],3)}%")
+
+    plt.bar(index, happy)
+    plt.title("Happiness by income bracket")
+    plt.xlabel("Income bracket")
+    plt.ylabel("Happiness (%)")
+    plt.show()
+
+    end = time.time()
+    print(f"Time taken: {end-start:.4f} seconds")
     return agents, houses, stats, last_round
 
 "------------------------------------- run a monte carlo sim to reduce variance -------------------------------------"
@@ -91,6 +123,7 @@ def monte_carlo_sim(n_agents = N_AGENTS,
                     theta_max = THETA_MAX,
                     converge = False,
                     convergence_bound = 5): # will the sim end if we have churn convergence?
+    start = time.time()
     # initialization
     agents_og = generate_agents(n_agents)
     agents_og["theta"] = np.random.uniform(theta_min, theta_max, n_agents)
@@ -98,6 +131,10 @@ def monte_carlo_sim(n_agents = N_AGENTS,
     houses_og["value"] = np.full(n_agents, starting_house_price)
     
     mc_stats = initialize_mc_stats(num_runs = n_runs, num_rounds=max_rounds, num_agents=agents_og.size, num_neighborhoods=n_neighborhoods)
+
+    # for plotting happiness by income bracket
+    max_brackets = np.max(agents_og["income_bracket"]) + 1
+    final_happiness_by_bracket = np.zeros((n_runs, max_brackets))
 
     for current_run in range(n_runs):
         print(f"Running run {current_run+1}")
@@ -112,11 +149,6 @@ def monte_carlo_sim(n_agents = N_AGENTS,
             proportions = get_proportion(freq, total)
             agents = check_happiness(agents, proportions, happiness_percent)
 
-            mc_stats = get_mc_stats(mc_stats, agents, houses, run_id = current_run, current_round=count)
-            if count > 0:
-                mc_stats["num_bids"][current_run, count] = np.count_nonzero(bids)
-                mc_stats["winning_bids"][current_run, count] = num_winners
-
             priced_out_mask = check_priced_out(agents, houses, proportions, beta, gamma, delta) # look at who can no longer afford their home
             evict_priced_out(agents, houses, priced_out_mask) # start by evicting them, so they can also participate in this round of bidding
 
@@ -126,6 +158,19 @@ def monte_carlo_sim(n_agents = N_AGENTS,
             bids, neighborhoods_chosen = place_bid(agents, utilities, beta, gamma, delta)
             agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen)
             houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, beta = beta)
+
+            # log the data
+            mc_stats = get_mc_stats(mc_stats, agents, houses, run_id = current_run, current_round=count)
+            if count > 0:
+                mc_stats["num_bids"][current_run, count] = np.count_nonzero(bids)
+                mc_stats["winning_bids"][current_run, count] = num_winners
+
+            # get data on happiness by income bracket
+            for i in range(max_brackets):
+                mask = agents["income_bracket"] == i
+                total_i = np.sum(mask)
+                happy_i = np.sum(agents["happy"][mask])
+                final_happiness_by_bracket[current_run, i] = happy_i * 100 / total_i
 
             count += 1
             if converge == True:
@@ -138,6 +183,42 @@ def monte_carlo_sim(n_agents = N_AGENTS,
                     last_round = count-1 
                     break
 
+    # plot happiness over time
+    index = np.arange(0,last_round+1)
+    mean_happiness = np.zeros(last_round+1)
+    for t in range(last_round + 1):
+        vals = mc_stats["happiness"][:, t]
+        vals = vals[vals != 0]  # exclude runs that already terminated
+        if vals.size > 0:
+            mean_happiness[t] = np.mean(vals)
+        else:
+            mean_happiness[t] = np.nan
+    plt.plot(index, mean_happiness, linewidth=2)
+    plt.title("Average Happiness Over Time")
+    plt.xlabel("Rounds")
+    plt.ylabel("Happiness (%)")
+    plt.show()
+
+    # plot happiness by income bracket
+    brackets = np.arange(max_brackets)
+    mean_final_happiness = np.nanmean(final_happiness_by_bracket)
+    happy = np.zeros(max_brackets)
+
+    # print a text output
+    for i in range(max_brackets):
+        mask = agents["income_bracket"] == i
+        happy[i] = np.nanmean(final_happiness_by_bracket[:, i]) # avg pct happy in bracket i
+        total_ib = np.size(agents[mask])
+        happy_ib = round(happy[i]/100 * total_ib,3) # get a numerical value since happy[i] is a pct value
+        print(f"Income bracket {i}: {happy_ib}/{total_ib} agents happy on average, {round(happy[i],3)}%")
+
+    plt.bar(brackets, happy)
+    plt.title("Happiness by Income Bracket")
+    plt.xlabel("Income bracket")
+    plt.ylabel("Happiness (%)")
+
+    end = time.time()
+    print(f"Total time taken: {end-start:.4f} secs")
     return agents, houses, mc_stats, last_round
 
 "------------------------- look at the impact changing parameters has on different variables ------------------------"
@@ -450,176 +531,3 @@ def create_segregation_animation(stats, last_round, save_path='segregation_anima
     shutil.rmtree(temp_dir)
     
     print(f"Animation saved to {save_path}")
-
-"---------------- debug functions: gives us the time of each process to identify any bloat in the sim ---------------"
-def sim_one_round_debug(n_agents = N_AGENTS,
-                        n_neighborhoods = N_NEIGHBORHOODS,
-                        max_rounds = 100,
-                        happiness_percent = DEFAULT_HAPPINESS_PERCENT,
-                        starting_house_price = STARTING_HOUSE_PRICE, 
-                        beta = BETA, 
-                        gamma = GAMMA, 
-                        delta = DELTA, 
-                        theta_min = THETA_MIN,
-                        theta_max = THETA_MAX,
-                        converge = False,
-                        convergence_bound = 5): # will the sim end if we have churn convergence?
-    # initialization
-    start = time.time()
-    agents = generate_agents(n_agents)
-    agents["theta"] = np.random.uniform(theta_min, theta_max, n_agents)
-    houses = initialize_houses(agents)
-    houses["value"] = np.full(n_agents, starting_house_price)
-
-    stats = initialize_stats(num_rounds=max_rounds, num_neighborhoods=n_neighborhoods)
-    end = time.time()
-    print(f"Initialization: {end-start:.4f} secs")
-    count = 0 # tracks iterations
-    prev_house = None # we initialize previous houses = none since ofc its not defined yet
-
-    # ideally we wanna run this sim until all agents are happy, but thats very unlikely to ever happen
-    while not np.all(agents["happy"]):
-        print(f"Round {count}")
-        # gets the prpn of agents >= income brackets for all brackets and calculates happiness
-        start = time.time()
-        freq, total = get_freq_and_total(agents)
-        proportions = get_proportion(freq, total)
-        agents = check_happiness(agents, proportions, happiness_percent)
-        end = time.time()
-        print(f"Check happiness: {end-start:.4f} secs")
-        #print(f"Happiness: {(np.sum(agents["happy"])*100)/n_agents:.3f}%")
-        #print(f"Homelessness: {(np.sum(agents["neighborhood"]==-1)*100)/n_agents:.3f}%")
-        #print()
-
-        start = time.time()
-        stats, prev_house = get_stats(stats, agents, houses, current_round=count, prev_house=prev_house)
-        if count > 0:
-            stats["num_bids"][count] = np.count_nonzero(bids)
-            stats["winning_bids"][count] = num_winners
-        end = time.time()
-        print(f"Stats generation: {end-start:.4f} secs")        
-
-        start = time.time()
-        priced_out_mask = check_priced_out(agents, houses, proportions, beta, gamma, delta) # look at who can no longer afford their home
-        evict_priced_out(agents, houses, priced_out_mask) # start by evicting them, so they can also participate in this round of bidding
-        end = time.time()
-        print(f"Evict priced out: {end-start:.4f} secs")
-
-        # the whole bidding and house allocation process
-        current_rents = get_current_rents(houses)
-        start = time.time()
-        utilities = get_utilities(agents, proportions, current_rents)
-        end = time.time()
-        print(f"Utility calculation: {end-start:.4f} secs")
-        start = time.time()
-        bids, neighborhoods_chosen = place_bid(agents, utilities, beta, gamma, delta)
-        end = time.time()
-        print(f"Bidding process: {end-start:.4f} secs")
-        start = time.time()
-        agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen)
-        end = time.time()
-        print(f"House allocation: {end-start:.4f} secs")
-        start = time.time()
-        houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, beta = beta)
-        end = time.time()
-        print(f"Update prices: {end-start:.4f} secs")
-
-        count += 1
-        if converge == True:
-            if count - convergence_bound >= 0:
-                if np.sum(stats["churn"][count-convergence_bound:count]) == 0: # churn for the past `convergence bound` rounds has been zero
-                    last_round = count-1
-                    break
-        else:
-            if count >= max_rounds: # we use max_rounds if converge flag is false
-                last_round = count-1 
-                break
-
-    return agents, houses, stats, last_round
-
-def monte_carlo_sim_debug(n_agents = N_AGENTS,
-                          n_neighborhoods = N_NEIGHBORHOODS,
-                          max_rounds = 100,
-                          n_runs = 30,
-                          happiness_percent = DEFAULT_HAPPINESS_PERCENT,
-                          starting_house_price = STARTING_HOUSE_PRICE, 
-                          beta = BETA, 
-                          gamma = GAMMA, 
-                          delta = DELTA, 
-                          theta_min = THETA_MIN,
-                          theta_max = THETA_MAX,
-                          converge = False,
-                          convergence_bound = 5): # will the sim end if we have churn convergence?
-    # initialization
-    start = time.time()
-    agents_og = generate_agents(n_agents)
-    agents_og["theta"] = np.random.uniform(theta_min, theta_max, n_agents)
-    houses_og = initialize_houses(agents_og)
-    houses_og["value"] = np.full(n_agents, starting_house_price)
-    
-    mc_stats = initialize_mc_stats(num_runs = n_runs, num_rounds=max_rounds, num_agents=agents_og.size, num_neighborhoods=n_neighborhoods)
-    end = time.time()
-    print(f"Intial initalization time: {end-start:.4f} secs")
-
-    for current_run in range(n_runs):
-        print(f"Running run {current_run+1}")
-        print()
-        agents = agents_og.copy()
-        houses = houses_og.copy()
-        count = 0 # tracks iterations
-        # ideally we wanna run this sim until all agents are happy, but thats very unlikely to ever happen
-        while not np.all(agents["happy"]):
-            print(f"    Round {count}")
-            # gets the prpn of agents >= income brackets for all brackets and calculates happiness
-            start = time.time()
-            freq, total = get_freq_and_total(agents)
-            proportions = get_proportion(freq, total)
-            agents = check_happiness(agents, proportions, happiness_percent)
-            end = time.time()
-            print(f"Check happiness: {end-start:.4f} secs")
-
-            start = time.time()
-            mc_stats = get_mc_stats(mc_stats, agents, houses, run_id = current_run, current_round=count)
-            if count > 0:
-                mc_stats["num_bids"][current_run, count] = np.count_nonzero(bids)
-                mc_stats["winning_bids"][current_run, count] = num_winners
-            end = time.time()
-            print(f"Stats generation: {end-start:.4f} secs")         
-
-            start = time.time()
-            priced_out_mask = check_priced_out(agents, houses, proportions, beta, gamma, delta) # look at who can no longer afford their home
-            evict_priced_out(agents, houses, priced_out_mask) # start by evicting them, so they can also participate in this round of bidding
-            end = time.time()
-            print(f"Evict priced out: {end-start:.4f} secs")
-
-            # the whole bidding and house allocation process
-            current_rents = get_current_rents(houses)
-            start = time.time()
-            utilities = get_utilities(agents, proportions, current_rents)
-            end = time.time()
-            print(f"Utility calculation: {end-start:.4f} secs")
-            start = time.time()
-            bids, neighborhoods_chosen = place_bid(agents, utilities, beta, gamma, delta)
-            end = time.time()
-            print(f"Bidding process: {end-start:.4f} secs")
-            start = time.time()
-            agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen)
-            end = time.time()
-            print(f"Allocating houses: {end-start:.4f} secs")
-            start = time.time()
-            houses = update_prices(agents, houses, neighborhoods_chosen, cutoff_bids, beta=beta)
-            end = time.time()
-            print(f"Update prices: {end-start:.4f} secs")
-
-            count += 1
-            if converge == True:
-                if count - convergence_bound >= 0:
-                    if np.sum(mc_stats["churn"][count-convergence_bound:count]) == 0: # churn for the past `convergence bound` rounds has been zero
-                        last_round = count-1
-                        break
-            else:
-                if count >= max_rounds: # we use max_rounds if converge flag is false
-                    last_round = count-1 
-                    break
-
-    return agents, houses, mc_stats, last_round

@@ -60,9 +60,8 @@ The Shapley approach is mathematically rigorous and handles the complexity of yo
 
 The Constraint: Because most agents desire higher-income neighbors, and there are inherently few high-income individuals, it becomes a competitive, zero-sum game for these desirable neighbors. Not everyone can achieve their high x% threshold for "better" neighbors, leading to the observed 1-x happiness convergence. The "proportion of the population that can realistically achieve this preference" is limited by the availability of the desired income brackets.
 
-### to do before next commit
-\> come up with an initial housing allocation function since rn neighborhoods are allocated but houses arent
-\> find out why the nonmarket housing graph has crazy oscillations all the time
-\> add dissimilarity
-\> explore the feasibility of adding a slight bias so that richer/poorer neighborhoods are more likely to form next to each other
+## to do before next commit
 \> look at Bruch & Mare 2006; Benenson 1999; Zhang 2004
+
+
+- check why some runs lead to 0 happy in certain income brackets
