@@ -1,91 +1,139 @@
 from .common import *
 import numpy as np
-from numba import njit, jit, prange
+from numba import njit
 
-"------------------------------------------- cobb-douglas utility function ------------------------------------------"
-# using the proportions argument to prevent redoing the math, make sure to update the proportions array appropriately
-@njit(parallel = True, cache = True)
-def get_utilities(agents, proportions, current_rents):
-    # find utility agent i gets from moving to neighborhood k
-    n = agents.size
-    n_neighborhoods = np.max(agents["neighborhood"])+1
-    utilities = np.zeros((n, n_neighborhoods), dtype = np.float32)
+"------------------------------------------ which neighborhoods can you move into? -----------------------------------"
+def vacant_neighborhoods(houses, n_neighborhoods = N_NEIGHBORHOODS, low_rent_only = False, market_only = False):
+    # boolean array: does neighborhood k have at least one vacant home (of the requested kind)?
+    vacant = houses["tenant"] == -1
+    if low_rent_only:
+        vacant = vacant & houses["low_rent"]
+    if market_only:
+        vacant = vacant & ~houses["low_rent"]
+    counts = np.bincount(houses["neighborhood"][vacant], minlength = n_neighborhoods)[:n_neighborhoods]
+    return counts > 0
 
-    for i in prange(n):
-        # skip agents that are already happy, should be a good performance boost
-        if agents["happy"][i]:
+"--------------------------------------------- rents agents see when bidding -----------------------------------------"
+def bidding_rents(houses, n_neighborhoods = N_NEIGHBORHOODS, low_rent = False):
+    # the rent you'd pay in each neighborhood: its single market rent (or the discounted rent for set aside homes)
+    # a completely empty neighborhood (round 0) has no rent yet: 0, and the auction discovers it
+    field = "rent_charged" if low_rent else "value"
+    rents = np.zeros(n_neighborhoods)
+    occupied = np.bincount(houses["neighborhood"][houses["tenant"] != -1], minlength = n_neighborhoods)[:n_neighborhoods]
+    for n in range(n_neighborhoods):
+        if occupied[n] == 0:
             continue
-
-        ib = agents["income_bracket"][i]
-        income = agents["income"][i]
-        θ = agents["theta"][i]
-
-        row_max = 0.0
-        for k in range(n_neighborhoods):
-            rent = current_rents[k]
-            c = (income-rent)/income # what % of income is left after moving into the new prospective neighborhood?
-            if c <= 0.0:
-                c = 0.0
-            q = proportions[k, ib] # quality of the new neighborhood
-            val = (q ** θ) * (c ** (1-θ)) # utility fn
-            utilities[i, k] = val
-            if val > row_max:
-                row_max = val
-    
-        # normalize utility scores on a per agent basis
-        # => 1 = agent's most preferred move, everything else relative to 1
-        if row_max > 0.0:
-            for k in range(n_neighborhoods):
-                utilities[i, k] = utilities[i, k]/row_max
-    return utilities 
+        if low_rent:
+            idx = np.where((houses["neighborhood"] == n) & houses["low_rent"])[0]
+        else:
+            idx = np.where(houses["neighborhood"] == n)[0]
+            if "low_rent" in houses.dtype.names:
+                idx = idx[~houses["low_rent"][idx]]
+        if idx.size > 0:
+            rents[n] = houses[field][idx[0]]
+    return rents
 
 "--------------------------------------------------- bidding logic --------------------------------------------------"
-@jit(cache = True)
-def place_bid(agents, utilities,
-              beta = BETA, # base fraction of income agent is wtp
-              gamma = GAMMA, # marginal WTP for 1 unit of social utility U
-              delta = DELTA): # max cap on affordability, so that bids dont take up entire agent income
-    
-    n_agents = agents.size
-    happy = agents["happy"]
-    incomes = agents["income"]
+# every unhappy agent picks ONE neighborhood and bids their bid-rent r* for it (see common.py)
+# a neighborhood k is an option only if:
+#   1. it has a vacant home the agent could rent
+#   2. its current rent is below r*_k, i.e. the agent prefers it to nonmarket housing at that rent
+#   3. for agents who already have a home: U_k > U at their current home (they only move somewhere better)
+# among the options, the choice is logit over U (see CHOICE_TEMPERATURE). the bid is r*_k, which is always >= the rent
+@njit(cache = True)
+def _place_bid_kernel(happy, incomes, thetas, brackets, eligible, current_nb, current_rent,
+                      proportions, q_nm, rents_market, rents_eligible, available_market, available_eligible,
+                      delta, temperature):
+    n_agents = incomes.size
+    n_neighborhoods = proportions.shape[0]
     bids = np.zeros(n_agents, dtype = np.float64)
-    # which neighborhood the agents chooses to bid for
-    # -1 => they're not bidding this round
-    neighborhood_chosen = np.full(n_agents, -1, dtype = np.int64)   
+    # which neighborhood the agents chooses to bid for, -1 => they're not bidding this round
+    neighborhood_chosen = np.full(n_agents, -1, dtype = np.int64)
+    u = np.zeros(n_neighborhoods) # utility of each option (0 => not an option)
+    r_star = np.zeros(n_neighborhoods) # bid-rent for each neighborhood
 
     for i in range(n_agents):
-        # checking if non-finite values might be screwing something up [TESTING PURPOSES ONLY, DELETE LATER]
-        if not np.isfinite(incomes[i]):
-            print(f"Non-finite income at agent {i}: {incomes[i]}")
-        if not np.all(np.isfinite(utilities[i,:])):
-            print(f"Non-finite utilities at agent {i}: {utilities[i,:]}")
-        # agents bid if they're either not happy or not a tenant
-        need_to_bid = not(happy[i])
-        
-        if need_to_bid:
-            utility_bids = (beta + gamma * utilities[i,:]) * incomes[i] # utilities of all neighborhoods for agent i
-            max_bids = delta * incomes[i]
-            # a vector of all the potential bids the agent would make for all neighborhoods
-            final_bids = np.minimum(utility_bids, max_bids)
+        if happy[i]: # happy agents stay put
+            continue
+        y = incomes[i]
+        theta = np.float64(thetas[i])
+        b = brackets[i]
+        if eligible[i]:
+            rents = rents_eligible
+            available = available_eligible
+        else:
+            rents = rents_market
+            available = available_market
 
-            # i think we're having some errors where nan or inf values are causing issues where the len(candidates) = 0, making random.randint bug out
-            # this should weed that out since we make sure that -np.inf can never be equal to max_val
-            for value in range(final_bids.shape[0]):
-                if not np.isfinite(final_bids[value]):
-                    final_bids[value] = -np.inf
-                    
-            max_val = np.max(final_bids)
-            if max_val == -np.inf:
-                bids[i] = 0.0
-                neighborhood_chosen[i] = -1
-            else:
-                # tiebreaker logic since ties could be common when an agent hits his max bid cap on multiple neighborhoods
-                candidates = np.where(final_bids == max_val)[0]
-                k = candidates[np.random.randint(len(candidates))] # hopefully now len(candidates) will never be zero
-                # set the agent's bid
-                bids[i] = final_bids[k]
-                # set the agent's chosen neighborhood to move them there if the bid is succcesful
-                neighborhood_chosen[i] = k
+        # utility where they live now (0 for agents in nonmarket housing: condition 2 already covers them)
+        u_current = 0.0
+        if current_nb[i] >= 0:
+            u_current = utility(y, theta, proportions[current_nb[i], b], current_rent[i], delta)
+
+        u_best = 0.0
+        for k in range(n_neighborhoods):
+            u[k] = 0.0
+            if not available[k]:
+                continue
+            r_star[k] = bid_rent(y, theta, proportions[k, b], q_nm[b], delta)
+            if rents[k] >= r_star[k]: # not better than nonmarket housing at this rent
+                continue
+            uk = utility(y, theta, proportions[k, b], rents[k], delta)
+            if uk <= u_current: # not better than where they live now
+                continue
+            u[k] = uk
+            if uk > u_best:
+                u_best = uk
+        if u_best <= 0.0: # nowhere better to go this round
+            continue
+
+        # logit choice over the options, utilities normalized so the best option = 1
+        total = 0.0
+        for k in range(n_neighborhoods):
+            if u[k] > 0.0:
+                u[k] = np.exp((u[k] / u_best - 1.0) / temperature)
+                total += u[k]
+        draw = np.random.random() * total
+        chosen = -1
+        running = 0.0
+        for k in range(n_neighborhoods):
+            if u[k] > 0.0:
+                chosen = k
+                running += u[k]
+                if running >= draw:
+                    break
+
+        bids[i] = r_star[chosen]
+        neighborhood_chosen[i] = chosen
 
     return bids, neighborhood_chosen
+
+def place_bid(agents, proportions, q_nm, home_rents,
+              rents_market, available_market,
+              rents_eligible = None, # rents eligible agents face (policy only)
+              available_eligible = None, # neighborhoods eligible agents can move into (policy only)
+              delta = DELTA,
+              temperature = CHOICE_TEMPERATURE):
+    # q_nm: nonmarket housing quality per bracket (nonmarket_quality_by_bracket)
+    # home_rents: the rent paid for each home (houses["value"], or houses["rent_charged"] under the policy)
+    if temperature <= 0:
+        raise ValueError("temperature must be > 0")
+    if rents_eligible is None:
+        rents_eligible = rents_market
+    if available_eligible is None:
+        available_eligible = available_market
+    if "low_rent" in agents.dtype.names:
+        eligible = agents["low_rent"]
+    else:
+        eligible = np.zeros(agents.size, dtype = np.bool_)
+
+    # where each agent lives now and what they pay (-1 / 0 if in nonmarket housing; their 'neighborhood' field is stale then)
+    housed = agents["house"] >= 0
+    current_nb = np.where(housed, agents["neighborhood"].astype(np.int64), -1)
+    current_rent = np.zeros(agents.size)
+    current_rent[housed] = home_rents[agents["house"][housed]]
+
+    return _place_bid_kernel(agents["happy"], agents["income"], agents["theta"], agents["income_bracket"], eligible,
+                             current_nb, current_rent, proportions, q_nm,
+                             np.asarray(rents_market, dtype = np.float64), np.asarray(rents_eligible, dtype = np.float64),
+                             available_market, available_eligible, float(delta), float(temperature))

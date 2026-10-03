@@ -28,17 +28,11 @@ def get_incomes(agents):
     return agent_incomes
 "------------------------------------------ computing income brackets once ------------------------------------------"
 def find_income_brackets(agents, percentiles = PERCENTILES):
-    here = os.path.dirname(__file__) # current path of agents.py (/src)
-    filepath = os.path.join(here, "..", "data", "income_quantile_delhi.csv") # goes one level up to fetch the csv
-    filepath = os.path.abspath(filepath) # gets an actual absolute path
-
-    file = pd.read_csv(filepath) # hard coded path so the notebooks wont face an issue
-    quantiles = file["quantile_value"].values
-    income = file["income"].values
-
-    quantile_function = si.PchipInterpolator(quantiles, income)
-    probs = np.array(percentiles)/100 # gets percentiles into a [0,1] range
-    cutoffs = quantile_function(probs) # find the quantiles of the percentiles
+    # FIX: the cutoffs used to come from a PCHIP fit of the CSV, while incomes are drawn from a *smoothed* spline
+    # (s = 5) of the same CSV. the two curves don't match, so the brackets weren't true deciles
+    # (in testing, bracket 0 held ~12% of agents and the top-1% bracket could end up empty)
+    # now the cutoffs are percentiles of the simulated incomes themselves, so bracket 0 is exactly the bottom 10%, etc
+    cutoffs = np.percentile(agents["income"], percentiles).astype(np.float64)
     cutoffs[0] = 0
     cutoffs[-1] = np.inf # ensures lowest cutoff is zero and that there is no highest cutoff
 
@@ -48,9 +42,11 @@ def find_income_brackets(agents, percentiles = PERCENTILES):
 "----------------- get frequency of each bracket in a neighborhood + total agents in a neighborhood -----------------"
 # writing this outside check_happiness so i can use np.bincount here while still parallelizing with numba later
 # this is so much faster
-def get_freq_and_total(agents):
-    neighborhoods = agents["neighborhood"]
-    income_brackets = agents["income_bracket"]
+def get_freq_and_total(agents, count_nonmarket = COUNT_NONMARKET):
+    # only residents count towards a neighborhood's composition (see COUNT_NONMARKET in common.py)
+    residents = resident_mask(agents, count_nonmarket)
+    neighborhoods = agents["neighborhood"][residents]
+    income_brackets = agents["income_bracket"][residents]
     freq = np.zeros((N_NEIGHBORHOODS, N_BRACKETS), dtype = np.int32)
 
     # takes a (nb,ib) pair as a coordinate and increments freq[nb,ib] by 1
@@ -63,27 +59,34 @@ def get_freq_and_total(agents):
 
     return freq, total
 
+"------------------------- quality of a randomly mixed neighborhood, for each income bracket ------------------------"
+# s(b) = city-wide share of agents at or above bracket b. this is what q would be in a perfectly mixed neighborhood
+# used for (1) empty neighborhoods, including every neighborhood in round 0, and (2) nonmarket housing quality
+def city_quality(agents, n_brackets = N_BRACKETS):
+    counts = np.bincount(agents["income_bracket"], minlength = n_brackets)[:n_brackets]
+    at_or_above = np.cumsum(counts[::-1])[::-1] # running sum from the top bracket down
+    return (at_or_above / agents.size).astype(np.float64)
+
+# quality of nonmarket housing for each bracket: a randomly mixed neighborhood, discounted (see NONMARKET_QUALITY)
+def nonmarket_quality_by_bracket(agents, nonmarket_quality = NONMARKET_QUALITY):
+    return nonmarket_quality * city_quality(agents)
+
 "------------ run this outside of check_happiness so i can reuse the logic later for utility evaluations ------------"
-njit(parallel = True, cache = True)
-def get_proportion(freq, total):
+# FIX: the decorator was missing its '@', so this line did nothing and the function ran as plain (slow) python
+@njit(parallel = True, cache = True)
+def get_proportion(freq, total, empty_quality):
     # precomputes an array to check what proportion in neighborhood j has >= income bracket i
-    proportions = np.zeros((N_NEIGHBORHOODS,N_BRACKETS), dtype = np.float32)
+    proportions = np.zeros((N_NEIGHBORHOODS,N_BRACKETS), dtype = np.float64)
     # parallelizing with prange since every nb works on a different row
-    for nb in prange(N_NEIGHBORHOODS): 
-        if total[nb] == 0: # if no agents live there: avoids division by zero errors
+    for nb in prange(N_NEIGHBORHOODS):
+        if total[nb] == 0:
+            # nobody lives there, so its composition is unknown: agents expect a random mix (city_quality)
+            # this covers round 0, when every neighborhood is empty. with q = 0 instead, nobody would ever bid
             for ib in range(N_BRACKETS):
-                proportions[nb,ib] = 0.0 # no agents => proportions = 0 for every income bracket
+                proportions[nb,ib] = empty_quality[ib]
             continue
-        """# code for the +-1 income bracket logic
-        for ib in range(12):
-            count = freq[nb, ib] # count tracks freq[nb] for ib-1, ib and ib+1, so it follows monetary homophily
-            if ib - 1 >= 0:
-                count += freq[nb, ib - 1]
-            if ib + 1 <= 11:
-                count += freq[nb, ib + 1]
-            proportions[nb, ib] = count / total[nb]"""
         # code for the >= income bracket logic
-        running_sum = 0 
+        running_sum = 0
         # iterate over brackets backwards to get >= bracket count
         for ib in range(N_BRACKETS-1, -1,-1):
             running_sum += freq[nb, ib]
@@ -92,11 +95,11 @@ def get_proportion(freq, total):
 
 "----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
 @jit(parallel = True, cache = True)
-def check_happiness(agents, proportions, happiness_percent = DEFAULT_HAPPINESS_PERCENT): 
+def check_happiness(agents, proportions, happiness_percent = DEFAULT_HAPPINESS_PERCENT):
     n = agents.size
     income_brackets = agents["income_bracket"]
     neighborhoods = agents["neighborhood"]
-    
+
     # computes happiness for each agent
     for i in prange(n):
         nb = neighborhoods[i]
@@ -105,7 +108,7 @@ def check_happiness(agents, proportions, happiness_percent = DEFAULT_HAPPINESS_P
             agents["happy"][i] = False # people living in nonmarket housing arent happy
         else:
             agents["happy"][i] = (proportions[nb, ib] >= happiness_percent)
-        
+
     return agents
 
 "-------------------------------------------- generate the agents finally -------------------------------------------"
@@ -124,11 +127,11 @@ def generate_agents(n_agents = N_AGENTS):
         ("rent_paid", np.float64), # no need for checking tenancy, rent_paid = 0 => not a tenant
         ("theta", np.float32), # numba doesnt like float16, so we stick to float32 here
     ])
-    
+
     # initialize agents
     agents = np.zeros(n_agents, dtype=agent_dtype)
 
-    agents["id"] = np.arange(n_agents) 
+    agents["id"] = np.arange(n_agents)
     agents["income"] = get_incomes(agents)
     agents["income_bracket"] = find_income_brackets(agents)
     agents["neighborhood"] = allocate_neighborhood(agents)
