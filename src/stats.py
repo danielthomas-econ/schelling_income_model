@@ -1,6 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker # to remove 1e6 base from the x axis on plots
+from scipy.stats import t as student_t
 from .common import resident_mask, N_BRACKETS
 
 "-------------------------------- initialize a structured array to hold all our stats -------------------------------"
@@ -18,7 +17,6 @@ def initialize_stats(num_rounds, num_neighborhoods):
         ("theil", np.float32), # >= 0, no upper bound
         ("theil_within", np.float32),
         ("theil_between", np.float32),
-        ("dissimilarity", np.float32),
         ("churn", np.float32),
         ("num_bids", np.uint32),
         ("winning_bids", np.uint32)
@@ -107,7 +105,6 @@ def initialize_mc_stats(num_runs, num_rounds, num_agents, num_neighborhoods):
         ("theil", np.float32, (num_runs, num_rounds)),
         ("theil_within", np.float32, (num_runs, num_rounds)),
         ("theil_between", np.float32, (num_runs, num_rounds)),
-        ("dissimilarity", np.float32, (num_runs, num_rounds)),
         ("prev_house", np.int32, (num_runs, num_agents)),
         ("churn", np.float32, (num_runs, num_rounds)),
         ("num_bids", np.uint32, (num_runs, num_rounds)),
@@ -161,7 +158,6 @@ def mc_mean_ci(mc_stats, stat_name, last_round, confidence = 95, band = "mean"):
     #                  'confidence interval' means, and it's what the shaded area should show when you compare two means
     # band = "spread": the middle `confidence`% of individual runs (the old behavior). this is not a CI, it's the
     #                  run-to-run spread, and it does NOT shrink as you add runs, which is why the old bands were so wide
-    from scipy.stats import t as student_t
     alpha = (100 - confidence) / 100
     lower_percentile = alpha / 2 * 100
     upper_percentile = (1 - alpha / 2) * 100
@@ -190,263 +186,14 @@ def mc_mean_ci(mc_stats, stat_name, last_round, confidence = 95, band = "mean"):
             lower[t] = upper[t] = mean[t]
     return mean, lower, upper
 
-"--------------------------------------------- plot graphs of each stat ---------------------------------------------"
-def plot_stats(stats, agents, houses, n_neighborhoods, last_round):
-    index = np.arange(0, last_round+1) # will always be our x axis
-
-    # happiness
-    print(f"Final happiness: {stats["happiness"][last_round]:.3f}%")
-    plt.plot(index, stats["happiness"][:last_round+1], label = "Average happiness")
-    plt.legend()
-    plt.title("Average happiness over time")
-    plt.xlabel("Rounds")
-    plt.ylabel("Happiness")
-    plt.show()
-
-    # agents living in nonmarket housing
-    print(f"Final agents in nonmarket housing: {stats['nonmarket_housing'][last_round]:.3f}%")
-    plt.plot(index, stats["nonmarket_housing"][:last_round+1])
-    plt.title("Agents living in nonmarket housing over time")
-    plt.xlabel("Rounds")
-    plt.ylabel("Percent of agents")
-    plt.show()
-
-    # house value
-    print(f"Final average house value: {stats["avg_value"][last_round]:.3f}")
-    plt.plot(index, stats["avg_value"][:last_round+1], label = "Average house value")
-    plt.legend()
-    plt.title("Average house value over time")
-    plt.xlabel("Rounds")
-    plt.ylabel("House value")
-    plt.show()
-
-    # churn
-    # FIX: average only over rounds that actually ran (round 0 has no churn by definition)
-    print(f"Avg churn: {np.mean(stats["churn"][1:last_round+1]):.3f}%")
-    plt.plot(index, stats["churn"][:last_round+1], label = "Churn")
-    plt.legend()
-    plt.title("Churn per round")
-    plt.xlabel("Rounds")
-    plt.ylabel("Percent of movers")
-    plt.show()
-
-    # gini
-    print(f"Final Gini: {stats["gini"][last_round]:.3f}")
-    plt.plot(index, stats["gini"][:last_round+1], label = "gini")
-    plt.legend()
-    plt.title("Avg Gini across neighborhood per round")
-    plt.xlabel("Rounds")
-    plt.ylabel("Gini index value")
-    plt.show()
-    # avg gini falls => more homogeneity within each neighborhood because of segregation
-
-    # theil indices
-    print(f"Final Theil: {stats["theil"][last_round]:.3f}")
-    print(f"Final Theil within: {stats["theil_within"][last_round]:.3f}")
-    print(f"Final Theil between: {stats["theil_between"][last_round]:.3f}")
-    print(f"Final global Theil: {stats["theil_within"][last_round]+stats["theil_between"][last_round]:.3f} = Theil within + Theil between")
-
-    plt.plot(index, stats["theil"][:last_round+1], label = "avg_theil")
-    plt.plot(index, stats["theil_within"][:last_round+1], label = "theil_within")
-    plt.plot(index, stats["theil_between"][:last_round+1], label = "theil_between")
-
-    plt.legend()
-    plt.title("Theil across neighborhoods per round")
-    plt.xlabel("Rounds")
-    plt.ylabel("Theil values")
-    plt.show()
-    # theil within falls -> neighborhoods become more homogenous
-    # theil between rises -> increased inequality between neighborhoods => segregation
-
-    # bids and winning bids
-    plt.plot(index, stats["num_bids"][:last_round+1], label = "Number of bids")
-    plt.plot(index, stats["winning_bids"][:last_round+1], label = "Number of winning bids")
-    plt.legend()
-    plt.title("Number of bids per round")
-    plt.xlabel("Rounds")
-    plt.ylabel("Bids")
-    plt.show()
-
-    # calculating correlation b/w income and rents
-    # FIX: rent used to be read off the first agent in the neighborhood, who could be in nonmarket housing (rent 0)
-    # all houses in a neighborhood share one price, so we read it off the houses instead
-    # and avg income is over residents only, so neighborhoods with no residents are dropped
-    residents = resident_mask(agents)
-    avg_income = np.full(n_neighborhoods, np.nan)
-    rent = np.full(n_neighborhoods, np.nan)
-    for i in range(n_neighborhoods):
-        agent_mask = residents & (agents["neighborhood"] == i)
-        house_mask = houses["neighborhood"] == i
-        if np.any(agent_mask) and np.any(house_mask):
-            avg_income[i] = np.mean(agents["income"][agent_mask])
-            rent[i] = houses["value"][house_mask][0]
-    keep = np.isfinite(avg_income) & np.isfinite(rent) & (rent > 0)
-    avg_income, rent = avg_income[keep], rent[keep]
-
-    log_income = np.log(avg_income)
-    log_rent = np.log(rent)
-
-    m_linear, b_linear = np.polyfit(avg_income, rent,1)
-    correlation_linear = np.corrcoef(avg_income, rent)[0,1]
-    m,b = np.polyfit(log_income, log_rent, 1) # m here -> income elasticity of demand for housing
-    correlation_log = np.corrcoef(log_income, log_rent)[0,1]
-    print(f"Line of best fit (linear): y = {m_linear:.4f}x + {b_linear:.4f}")
-    print(f"correlation coefficient (linear): {correlation_linear:.4f}")
-    print()
-    print(f"Line of best fit (log): y = {m:.4f}x + {b:.4f}")
-    print(f"correlation coefficient (log): {correlation_log:.4f}")
-
-    # plotting it
-    plt.scatter(avg_income, rent)
-    plt.plot(avg_income, m_linear*avg_income+b_linear, label = "Line of best fit")
-    plt.title("Relation between average income of a neighborhood and its rent")
-    plt.xlabel("Avg income")
-    plt.ylabel("Rents")
-    plt.legend()
-    plt.show()
-
-    plt.scatter(log_income, log_rent)
-    plt.plot(log_income, m*log_income+b, label = "Line of best fit")
-    plt.title("Relation between average income of a neighborhood and its rent (in logspace)")
-    plt.xlabel("Avg income")
-    plt.ylabel("Rents")
-    plt.legend()
-    plt.show()
-
-    # house value
-    value = houses["value"]
-    plt.hist(value, bins = 20, density = True)
-    plt.xlabel("House value")
-    plt.ylabel("Density")
-    plt.title("Distribution of house value")
-    plt.show()
-
-    # plot the agents income distribution
-    incomes = agents["income"]
-
-    # Cut off at, say, the 99th percentile for visualization
-    cutoff = np.percentile(incomes, 99.0)
-    incomes_percentile = incomes[incomes <= cutoff]
-
-    fig, axes = plt.subplots(2,1,figsize = (12,12)) # one plot for actual income distr, one with top 1% cut off
-    axes[0].hist(incomes, bins = 500, density = True)
-    axes[0].set_title("Income distribution of agents")
-    axes[0].set_xlabel("Income per year in Rupees")
-    axes[0].set_ylabel("Density")
-    # format x-axis numbers with commas
-    axes[0].xaxis.set_major_formatter(mticker.StrMethodFormatter('{x:,.0f}'))
-    axes[0].yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:f}'))
-
-
-    # with top 1% cut off
-    axes[1].hist(incomes_percentile, bins = 500, density = True)
-    axes[1].set_title("Income distribution of agents (top 1% exlcuded for a better view)")
-    axes[1].set_xlabel("Income per year in Rupees")
-    axes[1].set_ylabel("Density")
-    axes[1].xaxis.set_major_formatter(mticker.StrMethodFormatter('{x:,.0f}'))
-    axes[1].yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:f}'))
-
-    plt.show()
-
-"------------------------------------- same plotting function but for the mc sim ------------------------------------"
-def plot_mc_stats(mc_stats, last_round, confidence=95, band="mean"): # band = "mean" (CI of the mean) or "spread" (run-to-run)
-    index = np.arange(0, last_round + 1)
-
-    def get_mean_ci(stat_name):
-        return mc_mean_ci(mc_stats, stat_name, last_round, confidence, band)
-
-    # happiness
-    mean, lower, upper = get_mean_ci("happiness")
-    print(f"Final happiness: {mean[-1]:.3f}%")
-    plt.plot(index, mean, label="Average happiness", linewidth=2)
-    plt.fill_between(index, lower, upper, alpha=0.3, label=f"{confidence}% CI")
-    plt.legend()
-    plt.title("Average happiness over time (Monte Carlo)")
-    plt.xlabel("Rounds")
-    plt.ylabel("Happiness (%)")
-    plt.show()
-
-    # nonmarket housing
-    mean, lower, upper = get_mean_ci("nonmarket_housing")
-    print(f"Final agents in nonmarket housing: {mean[-1]:.3f}%")
-    plt.plot(index, mean, label="Nonmarket housing", linewidth=2)
-    plt.fill_between(index, lower, upper, alpha=0.3, label=f"{confidence}% CI")
-    plt.title("Agents in nonmarket housing over time (Monte Carlo)")
-    plt.xlabel("Rounds")
-    plt.ylabel("Percent of agents")
-    plt.legend()
-    plt.show()
-
-    # house value
-    mean, lower, upper = get_mean_ci("avg_value")
-    print(f"Final average house value: {mean[-1]:.3f}")
-    plt.plot(index, mean, label="Average house value", linewidth=2)
-    plt.fill_between(index, lower, upper, alpha=0.3, label=f"{confidence}% CI")
-    plt.legend()
-    plt.title("Average house value over time (Monte Carlo)")
-    plt.xlabel("Rounds")
-    plt.ylabel("House value")
-    plt.show()
-
-    # churn
-    mean, lower, upper = get_mean_ci("churn")
-    print(f"Avg churn: {np.nanmean(mean[1:]):.3f}%")
-    plt.plot(index, mean, label="Churn", linewidth=2)
-    plt.fill_between(index, lower, upper, alpha=0.3, label=f"{confidence}% CI")
-    plt.legend()
-    plt.title("Churn per round (Monte Carlo)")
-    plt.xlabel("Rounds")
-    plt.ylabel("Percent of movers")
-    plt.show()
-
-    # gini
-    mean, lower, upper = get_mean_ci("gini")
-    print(f"Final Gini: {mean[-1]:.3f}")
-    plt.plot(index, mean, label="Gini", linewidth=2)
-    plt.fill_between(index, lower, upper, alpha=0.3, label=f"{confidence}% CI")
-    plt.legend()
-    plt.title("Avg Gini across neighborhoods per round (Monte Carlo)")
-    plt.xlabel("Rounds")
-    plt.ylabel("Gini index value")
-    plt.show()
-
-    # theils
-    mean_theil, lower_theil, upper_theil = get_mean_ci("theil")
-    mean_within, lower_within, upper_within = get_mean_ci("theil_within")
-    mean_between, lower_between, upper_between = get_mean_ci("theil_between")
-
-    print(f"Final Theil: {mean_theil[-1]:.3f}")
-    print(f"Final Theil within: {mean_within[-1]:.3f}")
-    print(f"Final Theil between: {mean_between[-1]:.3f}")
-    print(f"Final global Theil: {mean_within[-1] + mean_between[-1]:.3f} = Theil within + Theil between")
-
-    plt.plot(index, mean_theil, label="Avg Theil", linewidth=2)
-    plt.plot(index, mean_within, label="Theil within", linewidth=2)
-    plt.plot(index, mean_between, label="Theil between", linewidth=2)
-
-    plt.fill_between(index, lower_theil, upper_theil, alpha=0.2)
-    plt.fill_between(index, lower_within, upper_within, alpha=0.2)
-    plt.fill_between(index, lower_between, upper_between, alpha=0.2)
-
-    plt.legend()
-    plt.title("Theil across neighborhoods per round (Monte Carlo)")
-    plt.xlabel("Rounds")
-    plt.ylabel("Theil values")
-    plt.show()
-
-    # bids
-    mean_bids, lower_bids, upper_bids = get_mean_ci("num_bids")
-    mean_winners, lower_winners, upper_winners = get_mean_ci("winning_bids")
-
-    plt.figure(figsize=(10, 6))
-    plt.plot(index, mean_bids, label="Number of bids", linewidth=2)
-    plt.plot(index, mean_winners, label="Number of winning bids", linewidth=2)
-
-    plt.fill_between(index, lower_bids, upper_bids, alpha=0.2)
-    plt.fill_between(index, lower_winners, upper_winners, alpha=0.2)
-
-    plt.legend()
-    plt.title("Number of bids per round (Monte Carlo)")
-    plt.xlabel("Rounds")
-    plt.ylabel("Bids")
-    plt.show()
+"--------------------------------- mean and CI across runs for a (runs, ...) array ---------------------------------"
+# same idea as mc_mean_ci, for per-run results that aren't indexed by round (eg the welfare numbers in policy.py)
+def runs_mean_ci(data, confidence = 95):
+    # mean across runs (axis 0) with a t confidence interval
+    data = np.asarray(data, dtype = np.float64)
+    n = np.sum(np.isfinite(data), axis = 0)
+    mean = np.nanmean(data, axis = 0)
+    alpha = (100 - confidence) / 100
+    with np.errstate(invalid = "ignore", divide = "ignore"):
+        half = student_t.ppf(1 - alpha/2, np.maximum(n - 1, 1)) * np.nanstd(data, axis = 0, ddof = 1) / np.sqrt(n)
+    return mean, mean - half, mean + half

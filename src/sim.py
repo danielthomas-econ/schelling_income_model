@@ -3,14 +3,9 @@ from .bidding import *
 from .common import *
 from .houses import *
 from .stats import *
+from .plots import plot_run_summary, plot_mc_summary
 import time
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.ticker import FuncFormatter
-import imageio
-import os
-import shutil
 
 "------------------------------------------- draw a fresh city to simulate ------------------------------------------"
 def new_population(n_agents = N_AGENTS,
@@ -26,14 +21,10 @@ def new_population(n_agents = N_AGENTS,
 "---------------------------------------------- one round of the sim ----------------------------------------------"
 # sim_one_round, monte_carlo_sim and the debug versions all used to carry their own copy of this logic
 def run_round(agents, houses, happiness_percent = DEFAULT_HAPPINESS_PERCENT, delta = DELTA,
-              nonmarket_quality = NONMARKET_QUALITY, temperature = CHOICE_TEMPERATURE):
-    # quality of an empty neighborhood (random mix) and of nonmarket housing, per bracket
-    empty_q = city_quality(agents)
-    q_nm = nonmarket_quality * empty_q
-
-    # gets the prpn of agents >= income brackets for all brackets and calculates happiness
-    freq, total = get_freq_and_total(agents)
-    proportions = get_proportion(freq, total, empty_q)
+              nonmarket_quality = NONMARKET_QUALITY, temperature = CHOICE_TEMPERATURE,
+              preference = PREFERENCE, homophily_window = HOMOPHILY_WINDOW):
+    # gets the prpn of similar agents in every neighborhood for every bracket, and the quality of nonmarket housing
+    proportions, q_nm = neighborhood_quality(agents, nonmarket_quality, preference, homophily_window)
     agents = check_happiness(agents, proportions, happiness_percent)
 
     # the most each tenant would pay to stay. tenants whose rent is above it leave for nonmarket housing,
@@ -61,9 +52,12 @@ def sim_one_round(n_agents = N_AGENTS,
                   temperature = CHOICE_TEMPERATURE,
                   theta_min = THETA_MIN,
                   theta_max = THETA_MAX,
+                  preference = PREFERENCE, # "status" or "homophily", see common.py
+                  homophily_window = HOMOPHILY_WINDOW,
                   converge = False,
                   convergence_bound = 5, # will the sim end if we have churn convergence?
-                  seed = None): # set an int to make the run reproducible
+                  seed = None, # set an int to make the run reproducible
+                  plot = True):
     # initialization
     start = time.time()
     set_seed(seed)
@@ -76,7 +70,8 @@ def sim_one_round(n_agents = N_AGENTS,
     # ideally we wanna run this sim until all agents are happy, but thats very unlikely to ever happen
     while not np.all(agents["happy"]):
         print(f"Round {count}")
-        agents, houses, bids, num_winners = run_round(agents, houses, happiness_percent, delta, nonmarket_quality, temperature)
+        agents, houses, bids, num_winners = run_round(agents, houses, happiness_percent, delta, nonmarket_quality,
+                                                      temperature, preference, homophily_window)
         print(f"Happiness: {(np.sum(agents["happy"])*100)/n_agents:.3f}%")
         print()
 
@@ -90,33 +85,8 @@ def sim_one_round(n_agents = N_AGENTS,
             break
     last_round = count-1 # FIX: also defined now if the loop ends because everyone is happy
 
-    # plot happiness over time
-    index = np.arange(0, last_round+1) # our x axis
-    plt.plot(index, stats["happiness"][:last_round+1], label = "Happiness")
-    plt.legend()
-    plt.title("Happiness over time")
-    plt.xlabel("Rounds")
-    plt.ylabel("Happiness (%)")
-    plt.show()
-
-    # plot happiness by income bracket
-    max_brackets = np.max(agents["income_bracket"]) + 1 # we must add one to this to account for zero being an income bracket
-    index = np.arange(max_brackets)
-    happy = np.zeros(max_brackets)
-
-    # print the output in text too
-    for i in range(max_brackets):
-        mask = agents["income_bracket"] == i
-        happy_ib = np.sum(agents["happy"][mask])
-        total_ib = np.size(agents[mask])
-        happy[i] = (happy_ib*100)/total_ib # prpn of happy agents
-        print(f"Income bracket {i}: {happy_ib}/{total_ib} agents happy, {round(happy[i],3)}%")
-
-    plt.bar(index, happy)
-    plt.title("Happiness by income bracket")
-    plt.xlabel("Income bracket")
-    plt.ylabel("Happiness (%)")
-    plt.show()
+    if plot:
+        plot_run_summary(stats, agents, last_round)
 
     end = time.time()
     print(f"Time taken: {end-start:.4f} seconds")
@@ -134,6 +104,8 @@ def monte_carlo_sim(n_agents = N_AGENTS,
                     temperature = CHOICE_TEMPERATURE,
                     theta_min = THETA_MIN,
                     theta_max = THETA_MAX,
+                    preference = PREFERENCE, # "status" or "homophily", see common.py
+                    homophily_window = HOMOPHILY_WINDOW,
                     converge = False,
                     convergence_bound = 5, # will the sim end if we have churn convergence?
                     seed = None, # run r uses seed + r, so the whole MC is reproducible
@@ -149,8 +121,6 @@ def monte_carlo_sim(n_agents = N_AGENTS,
 
     mc_stats = initialize_mc_stats(num_runs = n_runs, num_rounds=max_rounds, num_agents=agents_og.size, num_neighborhoods=n_neighborhoods)
 
-    # for plotting happiness by income bracket
-    max_brackets = N_BRACKETS
     final_happiness_by_bracket = mc_stats["bracket_happiness"] # (n_runs, n_brackets), filled in at the end of each run
 
     for current_run in range(n_runs):
@@ -166,7 +136,8 @@ def monte_carlo_sim(n_agents = N_AGENTS,
         count = 0 # tracks iterations
         # ideally we wanna run this sim until all agents are happy, but thats very unlikely to ever happen
         while not np.all(agents["happy"]):
-            agents, houses, bids, num_winners = run_round(agents, houses, happiness_percent, delta, nonmarket_quality, temperature)
+            agents, houses, bids, num_winners = run_round(agents, houses, happiness_percent, delta, nonmarket_quality,
+                                                          temperature, preference, homophily_window)
 
             # log the data
             mc_stats = get_mc_stats(mc_stats, agents, houses, run_id = current_run, current_round=count)
@@ -182,7 +153,7 @@ def monte_carlo_sim(n_agents = N_AGENTS,
         mc_stats["last_round"][current_run] = count-1
 
         # get data on happiness by income bracket at the end of the run
-        for i in range(max_brackets):
+        for i in range(N_BRACKETS):
             mask = agents["income_bracket"] == i
             total_i = np.sum(mask)
             if total_i > 0:
@@ -196,28 +167,7 @@ def monte_carlo_sim(n_agents = N_AGENTS,
     last_round = int(np.max(mc_stats["last_round"]))
 
     if plot:
-        # plot happiness over time
-        index = np.arange(0,last_round+1)
-        mean_happiness, _, _ = mc_mean_ci(mc_stats, "happiness", last_round)
-        plt.plot(index, mean_happiness, linewidth=2)
-        plt.title("Average Happiness Over Time")
-        plt.xlabel("Rounds")
-        plt.ylabel("Happiness (%)")
-        plt.show()
-
-        # plot happiness by income bracket
-        brackets = np.arange(max_brackets)
-        happy = np.nanmean(final_happiness_by_bracket, axis=0) # avg pct happy in each bracket across runs
-
-        # print a text output
-        for i in range(max_brackets):
-            print(f"Income bracket {i}: {round(happy[i],3)}% of agents happy on average")
-
-        plt.bar(brackets, happy)
-        plt.title("Happiness by Income Bracket")
-        plt.xlabel("Income bracket")
-        plt.ylabel("Happiness (%)")
-        plt.show()
+        plot_mc_summary(mc_stats, last_round)
 
     end = time.time()
     print(f"Total time taken: {end-start:.4f} secs")
@@ -235,6 +185,8 @@ def parameter_sweep(n_agents = 10_000, # results are mostly robust to popln size
                     temperature = CHOICE_TEMPERATURE,
                     theta_min = THETA_MIN,
                     theta_max = THETA_MAX,
+                    preference = PREFERENCE, # "status" or "homophily", see common.py
+                    homophily_window = HOMOPHILY_WINDOW,
                     params = None, # the parameters we want to evaluate here
                     sensitivity = 100, # how many values of the parameter do we evaluate for the sweep? higher -> more values evaluated
                     converge = False,
@@ -273,8 +225,6 @@ def parameter_sweep(n_agents = 10_000, # results are mostly robust to popln size
         ("theil_within_std", np.float32),
         ("theil_between", np.float32),
         ("theil_between_std", np.float32),
-        ("dissimilarity", np.float32),
-        ("dissimilarity_std", np.float32),
         ("churn", np.float32),
         ("churn_std", np.float32),
     ])
@@ -311,6 +261,8 @@ def parameter_sweep(n_agents = 10_000, # results are mostly robust to popln size
                 "temperature": temperature,
                 "theta_min": theta_min,
                 "theta_max": theta_max,
+                "preference": preference,
+                "homophily_window": homophily_window,
                 "converge": converge,
                 "convergence_bound": convergence_bound,
                 "seed": seed,
@@ -349,199 +301,3 @@ def parameter_sweep(n_agents = 10_000, # results are mostly robust to popln size
         all_results[param_name] = results # save the results for a given parameter in its corresponding key
 
     return all_results
-
-"-------------------------------------- plot the results of the parameter sweep -------------------------------------"
-def plot_parameter_sweep(all_results, save_path=None):
-    fig, axes = plt.subplots(3,2,figsize=(15,12))
-    axes = axes.flatten() # gives us 1d indexing
-
-    # all the metrics we'll plot
-    metrics = [
-        ("happiness", "Happiness (%)"),
-        ("nonmarket_housing", "Nonmarket Housing (%)"),
-        ("gini", "Gini Index"),
-        ("theil_between", "Theil Between"),
-        ("churn", "Average Churn (%)"),
-        ("avg_value", "Average House Value (₹)")
-    ]
-
-    # much better way to plot all at once instead of doing it all individually, once again thanks to Claude
-    for param_name, results in all_results.items():
-        param_values = results["param_value"]
-        for idx, (metric, label) in enumerate(metrics):
-            ax = axes[idx]
-            mean_vals = results[metric]
-            std_vals = results[f"{metric}_std"]
-
-            ax.plot(param_values, mean_vals, label = param_name)
-            # plot CIs
-            ax.fill_between(param_values, mean_vals - std_vals, mean_vals + std_vals, alpha = 0.5)
-
-            ax.set_xlabel(f"Parameter value")
-            ax.set_ylabel(label)
-            ax.set_title(f"{label} vs {param_name}")
-            ax.legend()
-            ax.grid(True, alpha = 0.3)
-
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path, bbox_inches = "tight")
-        print(f"Saved the parameter sweep plot to {save_path}")
-    else:
-        plt.show()
-
-
-# full disclosure:
-# i had no idea how to write the plot_segregation_grid or the create_segregation_animation functions
-# so i vibe coded them with Claude
-# i understand how it works though
-"---------------------------- to visualize the segregation with a heatmap of avg income ----------------------------"
-def plot_segregation_grid(stats, last_round, save_path=None):
-    # Determine grid layout based on number of rounds
-    num_rounds = last_round + 1
-
-    # Calculate subplot grid dimensions (roughly square)
-    ncols = int(np.ceil(np.sqrt(num_rounds)))
-    nrows = int(np.ceil(num_rounds / ncols))
-
-    # Create figure with appropriate size and spacing
-    fig = plt.figure(figsize=(ncols*2.5, nrows*2.5 + 1.5))
-
-    # Create gridspec with space for title and colorbar
-    gs = fig.add_gridspec(nrows, ncols,
-                          left=0.05, right=0.95,
-                          top=0.92, bottom=0.08,
-                          hspace=0.3, wspace=0.2)
-
-    # Get global income statistics for color scale
-    all_incomes = stats["avg_income"]["income"][:num_rounds].flatten()
-
-    # Set center of colormap to Round 0's city-wide average
-    round_0_incomes = stats["avg_income"]["income"][0]
-    vcenter = np.nanmean(round_0_incomes)
-
-    # Set vmin to 0 (fully red) and make vmax symmetric
-    vmin = 0
-    vmax = 2 * vcenter  # This makes vcenter the midpoint between 0 and vmax
-
-    # Create a diverging colormap (red for poor, green for rich)
-    colors = ['#d73027', '#f46d43', '#fdae61', '#fee090',
-              '#ffffbf', '#d9ef8b', '#a6d96a', '#66bd63', '#1a9850']
-    cmap = LinearSegmentedColormap.from_list('income', colors, N=256)
-
-    # Plot each round
-    axes = []
-    for round_num in range(num_rounds):
-        row = round_num // ncols
-        col = round_num % ncols
-        ax = fig.add_subplot(gs[row, col])
-        axes.append(ax)
-
-        # Extract income data for this round
-        income_data = stats["avg_income"]["income"][round_num]
-        neighborhoods = stats["avg_income"]["neighborhood"][round_num]
-
-        # Reshape into 10x10 grid
-        grid = np.full((10, 10), np.nan)
-        for i in range(len(neighborhoods)):
-            nb = int(neighborhoods[i])
-            income = income_data[i]
-            row_idx = nb // 10
-            col_idx = nb % 10
-            grid[row_idx, col_idx] = income
-
-        # Plot heatmap
-        im = ax.imshow(grid, cmap=cmap, vmin=vmin, vmax=vmax,
-                       interpolation='nearest', aspect='equal')
-
-        # Formatting
-        ax.set_title(f'Round {round_num}', fontsize=9, fontweight='bold', pad=5)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['bottom'].set_visible(False)
-        ax.spines['left'].set_visible(False)
-
-    # Overall title at the top
-    fig.suptitle('Income Segregation Dynamics Over Time',
-                 fontsize=18, fontweight='bold', y=0.97)
-
-    # Add colorbar at the bottom
-    cbar_ax = fig.add_axes([0.15, 0.02, 0.7, 0.02])
-    cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
-    cbar.set_label('Average Neighborhood Income (₹)',
-                   fontsize=11, fontweight='bold', labelpad=8)
-    cbar.ax.tick_params(labelsize=9)
-
-    # Format colorbar labels with comma separators, no scientific notation
-    def format_rupees(x, pos):
-        return f'₹{int(x):,}'
-    cbar.ax.xaxis.set_major_formatter(FuncFormatter(format_rupees))
-
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved visualization to {save_path}")
-    else:
-        plt.show()
-
-"---------------------------------------- creates a gif of the visualization ----------------------------------------"
-def create_segregation_animation(stats, last_round, save_path='segregation_animation.gif'):
-    # Create temporary directory for frames
-    temp_dir = 'temp_frames'
-    os.makedirs(temp_dir, exist_ok=True)
-
-    num_rounds = last_round + 1
-
-    # Get global color scale
-    all_incomes = stats["avg_income"]["income"][:num_rounds].flatten()
-    vmin = np.nanmin(all_incomes)
-    vmax = np.nanmax(all_incomes)
-
-    # Create a diverging colormap (red for poor, green for rich)
-    colors = ['#d73027', '#f46d43', '#fdae61', '#fee090',
-              '#ffffbf', '#d9ef8b', '#a6d96a', '#66bd63', '#1a9850']
-    cmap = LinearSegmentedColormap.from_list('income', colors, N=256)
-
-    frames = []
-
-    for round_num in range(num_rounds):
-        fig, ax = plt.subplots(figsize=(8, 8))
-
-        # Extract and reshape data
-        income_data = stats["avg_income"]["income"][round_num]
-        neighborhoods = stats["avg_income"]["neighborhood"][round_num]
-
-        grid = np.full((10, 10), np.nan)
-        for i in range(len(neighborhoods)):
-            nb = neighborhoods[i]
-            income = income_data[i]
-            row = nb // 10
-            col = nb % 10
-            grid[row, col] = income
-
-        # Plot
-        im = ax.imshow(grid, cmap=cmap, vmin=vmin, vmax=vmax,
-                       interpolation='nearest', aspect='equal')
-
-        ax.set_title(f'Round {round_num}/{last_round}', fontsize=16, fontweight='bold')
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-        # Add colorbar
-        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label('Avg Income (₹)', fontsize=12, fontweight='bold')
-
-        # Save frame
-        frame_path = f'{temp_dir}/frame_{round_num:03d}.png'
-        plt.savefig(frame_path, dpi=150, bbox_inches='tight')
-        frames.append(imageio.imread(frame_path))
-        plt.close()
-
-    # Create GIF
-    imageio.mimsave(save_path, frames, duration=0.5, loop=0)
-
-    # Cleanup
-    shutil.rmtree(temp_dir)
-
-    print(f"Animation saved to {save_path}")

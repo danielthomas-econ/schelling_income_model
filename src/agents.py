@@ -59,23 +59,32 @@ def get_freq_and_total(agents, count_nonmarket = COUNT_NONMARKET):
 
     return freq, total
 
-"------------------------- quality of a randomly mixed neighborhood, for each income bracket ------------------------"
-# s(b) = city-wide share of agents at or above bracket b. this is what q would be in a perfectly mixed neighborhood
-# used for (1) empty neighborhoods, including every neighborhood in round 0, and (2) nonmarket housing quality
-def city_quality(agents, n_brackets = N_BRACKETS):
-    counts = np.bincount(agents["income_bracket"], minlength = n_brackets)[:n_brackets]
-    at_or_above = np.cumsum(counts[::-1])[::-1] # running sum from the top bracket down
-    return (at_or_above / agents.size).astype(np.float64)
+"------------------------------------- which brackets count as 'similar' neighbors? ---------------------------------"
+# both preferences (see PREFERENCE in common.py) boil down to a range of brackets: an agent in bracket b counts
+# neighbors in brackets lo[b]..hi[b] (inclusive), so everything downstream works the same way for either one
+def similar_brackets(preference = PREFERENCE, homophily_window = HOMOPHILY_WINDOW, n_brackets = N_BRACKETS):
+    b = np.arange(n_brackets, dtype = np.int64)
+    if preference == "status":
+        return b, np.full(n_brackets, n_brackets - 1, dtype = np.int64)
+    if preference == "homophily":
+        if homophily_window < 0:
+            raise ValueError("homophily_window must be >= 0")
+        return np.maximum(b - homophily_window, 0), np.minimum(b + homophily_window, n_brackets - 1)
+    raise ValueError(f"preference must be 'status' or 'homophily', got {preference!r}")
 
-# quality of nonmarket housing for each bracket: a randomly mixed neighborhood, discounted (see NONMARKET_QUALITY)
-def nonmarket_quality_by_bracket(agents, nonmarket_quality = NONMARKET_QUALITY):
-    return nonmarket_quality * city_quality(agents)
+"------------------------- quality of a randomly mixed neighborhood, for each income bracket ------------------------"
+# s(b) = city-wide share of agents in a bracket similar to b. this is what q would be in a perfectly mixed neighborhood
+# used for (1) empty neighborhoods, including every neighborhood in round 0, and (2) nonmarket housing quality
+def city_quality(agents, lo, hi, n_brackets = N_BRACKETS):
+    counts = np.bincount(agents["income_bracket"], minlength = n_brackets)[:n_brackets]
+    cum = np.concatenate(([0], np.cumsum(counts))) # cum[j] = agents in brackets below j
+    return ((cum[hi+1] - cum[lo]) / agents.size).astype(np.float64)
 
 "------------ run this outside of check_happiness so i can reuse the logic later for utility evaluations ------------"
 # FIX: the decorator was missing its '@', so this line did nothing and the function ran as plain (slow) python
 @njit(parallel = True, cache = True)
-def get_proportion(freq, total, empty_quality):
-    # precomputes an array to check what proportion in neighborhood j has >= income bracket i
+def get_proportion(freq, total, empty_quality, lo, hi):
+    # precomputes an array to check what proportion in neighborhood j is in a bracket similar to bracket i
     proportions = np.zeros((N_NEIGHBORHOODS,N_BRACKETS), dtype = np.float64)
     # parallelizing with prange since every nb works on a different row
     for nb in prange(N_NEIGHBORHOODS):
@@ -85,15 +94,26 @@ def get_proportion(freq, total, empty_quality):
             for ib in range(N_BRACKETS):
                 proportions[nb,ib] = empty_quality[ib]
             continue
-        # code for the >= income bracket logic
-        running_sum = 0
-        # iterate over brackets backwards to get >= bracket count
-        for ib in range(N_BRACKETS-1, -1,-1):
-            running_sum += freq[nb, ib]
-            proportions[nb, ib] = running_sum / total[nb]
+        # running count of residents below each bracket, so any range of brackets is one subtraction
+        cum = np.zeros(N_BRACKETS+1, dtype = np.int64)
+        for ib in range(N_BRACKETS):
+            cum[ib+1] = cum[ib] + freq[nb, ib]
+        for ib in range(N_BRACKETS):
+            proportions[nb, ib] = (cum[hi[ib]+1] - cum[lo[ib]]) / total[nb]
     return proportions
 
-"----- agent wants {happiness_percent}% of people in his neighborhood to be of the same income bracket or higher ----"
+"------------------- what every round needs: neighborhood quality and nonmarket housing quality ---------------------"
+# run_round, run_round_affordable, the debug rounds and the welfare calculation all used to repeat these four lines
+def neighborhood_quality(agents, nonmarket_quality = NONMARKET_QUALITY,
+                         preference = PREFERENCE, homophily_window = HOMOPHILY_WINDOW):
+    lo, hi = similar_brackets(preference, homophily_window)
+    empty_q = city_quality(agents, lo, hi)
+    q_nm = nonmarket_quality * empty_q # nonmarket housing: a randomly mixed neighborhood, discounted
+    freq, total = get_freq_and_total(agents)
+    proportions = get_proportion(freq, total, empty_q, lo, hi)
+    return proportions, q_nm
+
+"------ agent wants {happiness_percent}% of people in his neighborhood to be in a similar bracket (see PREFERENCE) ---"
 @jit(parallel = True, cache = True)
 def check_happiness(agents, proportions, happiness_percent = DEFAULT_HAPPINESS_PERCENT):
     n = agents.size

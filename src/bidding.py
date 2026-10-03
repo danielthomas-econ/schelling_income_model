@@ -114,7 +114,7 @@ def place_bid(agents, proportions, q_nm, home_rents,
               available_eligible = None, # neighborhoods eligible agents can move into (policy only)
               delta = DELTA,
               temperature = CHOICE_TEMPERATURE):
-    # q_nm: nonmarket housing quality per bracket (nonmarket_quality_by_bracket)
+    # q_nm: nonmarket housing quality per bracket (see neighborhood_quality in agents.py)
     # home_rents: the rent paid for each home (houses["value"], or houses["rent_charged"] under the policy)
     if temperature <= 0:
         raise ValueError("temperature must be > 0")
