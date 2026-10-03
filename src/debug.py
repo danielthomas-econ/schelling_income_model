@@ -19,12 +19,10 @@ class _Timer:
         self.t = now
 
 "------------------------------------------- one timed round, baseline ----------------------------------------------"
-def _run_round_timed(agents, houses, happiness_percent, delta, nonmarket_quality, temperature):
+def _run_round_timed(agents, houses, happiness_percent, delta, nonmarket_quality, temperature,
+                     preference = PREFERENCE, homophily_window = HOMOPHILY_WINDOW):
     t = _Timer()
-    empty_q = city_quality(agents)
-    q_nm = nonmarket_quality * empty_q
-    freq, total = get_freq_and_total(agents)
-    proportions = get_proportion(freq, total, empty_q)
+    proportions, q_nm = neighborhood_quality(agents, nonmarket_quality, preference, homophily_window)
     agents = check_happiness(agents, proportions, happiness_percent)
     t.lap("Check happiness")
 
@@ -44,12 +42,10 @@ def _run_round_timed(agents, houses, happiness_percent, delta, nonmarket_quality
     return agents, houses, bids, num_winners
 
 "-------------------------------------------- one timed round, policy -----------------------------------------------"
-def _run_round_affordable_timed(agents, houses, happiness_percent, delta, nonmarket_quality, temperature, lower_price):
+def _run_round_affordable_timed(agents, houses, happiness_percent, delta, nonmarket_quality, temperature, lower_price,
+                                preference = PREFERENCE, homophily_window = HOMOPHILY_WINDOW):
     t = _Timer()
-    empty_q = city_quality(agents)
-    q_nm = nonmarket_quality * empty_q
-    freq, total = get_freq_and_total(agents)
-    proportions = get_proportion(freq, total, empty_q)
+    proportions, q_nm = neighborhood_quality(agents, nonmarket_quality, preference, homophily_window)
     agents = check_happiness(agents, proportions, happiness_percent)
     t.lap("Check happiness")
 
@@ -86,6 +82,8 @@ def sim_one_round_debug(n_agents = N_AGENTS,
                         temperature = CHOICE_TEMPERATURE,
                         theta_min = THETA_MIN,
                         theta_max = THETA_MAX,
+                        preference = PREFERENCE,
+                        homophily_window = HOMOPHILY_WINDOW,
                         converge = False,
                         convergence_bound = 5, # will the sim end if we have churn convergence?
                         seed = None):
@@ -101,7 +99,8 @@ def sim_one_round_debug(n_agents = N_AGENTS,
     while not np.all(agents["happy"]):
         print(f"Round {count}")
         agents, houses, bids, num_winners = _run_round_timed(agents, houses, happiness_percent, delta,
-                                                             nonmarket_quality, temperature)
+                                                             nonmarket_quality, temperature,
+                                                             preference, homophily_window)
         t = _Timer()
         stats, prev_house = get_stats(stats, agents, houses, current_round=count, prev_house=prev_house)
         stats["num_bids"][count] = np.count_nonzero(bids)
@@ -129,6 +128,8 @@ def monte_carlo_sim_debug(n_agents = N_AGENTS,
                           temperature = CHOICE_TEMPERATURE,
                           theta_min = THETA_MIN,
                           theta_max = THETA_MAX,
+                          preference = PREFERENCE,
+                          homophily_window = HOMOPHILY_WINDOW,
                           converge = False,
                           convergence_bound = 5, # will the sim end if we have churn convergence?
                           seed = None,
@@ -155,7 +156,8 @@ def monte_carlo_sim_debug(n_agents = N_AGENTS,
         while not np.all(agents["happy"]):
             print(f"    Round {count}")
             agents, houses, bids, num_winners = _run_round_timed(agents, houses, happiness_percent, delta,
-                                                                 nonmarket_quality, temperature)
+                                                                 nonmarket_quality, temperature,
+                                                                 preference, homophily_window)
             t = _Timer()
             mc_stats = get_mc_stats(mc_stats, agents, houses, run_id = current_run, current_round=count)
             mc_stats["num_bids"][current_run, count] = np.count_nonzero(bids)
@@ -181,6 +183,8 @@ def sim_one_round_affordable_debug(n_agents = N_AGENTS,
                                    temperature = CHOICE_TEMPERATURE,
                                    theta_min = THETA_MIN,
                                    theta_max = THETA_MAX,
+                                   preference = PREFERENCE,
+                                   homophily_window = HOMOPHILY_WINDOW,
                                    converge = False,
                                    convergence_bound = 5, # will the sim end if we have churn convergence?
                                    income_cutoff = 2, # agents with this income bracket and below are eligible
@@ -200,7 +204,8 @@ def sim_one_round_affordable_debug(n_agents = N_AGENTS,
     while not np.all(agents["happy"]):
         print(f"Round {count}")
         agents, houses, bids, num_winners = _run_round_affordable_timed(agents, houses, happiness_percent, delta,
-                                                                        nonmarket_quality, temperature, lower_price)
+                                                                        nonmarket_quality, temperature, lower_price,
+                                                                        preference, homophily_window)
         t = _Timer()
         stats, prev_house = get_stats(stats, agents, houses, current_round=count, prev_house=prev_house)
         stats["num_bids"][count] = np.count_nonzero(bids)

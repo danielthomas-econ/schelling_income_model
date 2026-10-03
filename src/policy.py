@@ -7,6 +7,8 @@ from .agents import *
 from .stats import *
 from .bidding import *
 from .sim import *
+from .plots import plot_run_summary, plot_mc_summary, plot_policy_comparison, plot_policy_bracket_happiness, plot_welfare
+from scipy.stats import t as student_t
 
 # i've copy pasted a lot of the code from the regular sim here to make the changes for low rent
 # to not force the original sim code to have a lot of 'if affordable housing policy' lines
@@ -229,12 +231,9 @@ def update_rent_paid_affordable(agents, houses):
 # same steps as run_round in sim.py. the differences: rents are what tenants are actually charged (rent_charged),
 # eligible agents see the discounted rent where a set aside home is free, and the allocation runs two auctions
 def run_round_affordable(agents, houses, happiness_percent = DEFAULT_HAPPINESS_PERCENT, delta = DELTA,
-                         nonmarket_quality = NONMARKET_QUALITY, temperature = CHOICE_TEMPERATURE, lower_price = 0.6):
-    empty_q = city_quality(agents)
-    q_nm = nonmarket_quality * empty_q
-
-    freq, total = get_freq_and_total(agents)
-    proportions = get_proportion(freq, total, empty_q)
+                         nonmarket_quality = NONMARKET_QUALITY, temperature = CHOICE_TEMPERATURE, lower_price = 0.6,
+                         preference = PREFERENCE, homophily_window = HOMOPHILY_WINDOW):
+    proportions, q_nm = neighborhood_quality(agents, nonmarket_quality, preference, homophily_window)
     agents = check_happiness(agents, proportions, happiness_percent)
 
     # set aside tenants are judged on the discounted rent they actually pay
@@ -283,12 +282,15 @@ def sim_one_round_affordable(n_agents = N_AGENTS,
                   delta = DELTA,
                   theta_min = THETA_MIN,
                   theta_max = THETA_MAX,
+                  preference = PREFERENCE, # "status" or "homophily", see common.py
+                  homophily_window = HOMOPHILY_WINDOW,
                   converge = False,
                   convergence_bound = 5, # will the sim end if we have churn convergence?
                   income_cutoff = 2, # agents with this income bracket and below are eligible
                   houses_eligible = 0.2, # what percent of houses in each neighborhood are 'affordable'
                   lower_price = 0.6, # low rent homes will cost (actual rent) * (lower_price), 60% by default
                   seed = None,
+                  plot = True,
                   ):
     start = time.time()
     set_seed(seed)
@@ -303,7 +305,8 @@ def sim_one_round_affordable(n_agents = N_AGENTS,
     while not np.all(agents["happy"]):
         print(f"Round {count}")
         agents, houses, bids, num_winners = run_round_affordable(agents, houses, happiness_percent, delta,
-                                                                 nonmarket_quality, temperature, lower_price)
+                                                                 nonmarket_quality, temperature, lower_price,
+                                                                 preference, homophily_window)
         print(f"Happiness: {(np.sum(agents["happy"])*100)/n_agents:.3f}%")
         print()
 
@@ -319,33 +322,8 @@ def sim_one_round_affordable(n_agents = N_AGENTS,
 
     print(f"Set aside targeting: {set_aside_targeting(agents, houses)}")
 
-    # plot happiness over time
-    index = np.arange(0, last_round+1) # our x axis
-    plt.plot(index, stats["happiness"][:last_round+1], label = "Happiness")
-    plt.legend()
-    plt.title("Happiness over time (affordable housing policy)")
-    plt.xlabel("Rounds")
-    plt.ylabel("Happiness (%)")
-    plt.show()
-
-    # plot happiness by income bracket
-    max_brackets = np.max(agents["income_bracket"]) + 1 # we must add one to this to account for zero being an income bracket
-    index = np.arange(max_brackets)
-    happy = np.zeros(max_brackets)
-
-    # print the output in text too
-    for i in range(max_brackets):
-        mask = agents["income_bracket"] == i
-        happy_ib = np.sum(agents["happy"][mask])
-        total_ib = np.size(agents[mask])
-        happy[i] = (happy_ib*100)/total_ib # prpn of happy agents
-        print(f"Income bracket {i}: {happy_ib}/{total_ib} agents happy, {round(happy[i],3)}%")
-
-    plt.bar(index, happy)
-    plt.title("Happiness by income bracket (affordable housing policy)")
-    plt.xlabel("Income bracket")
-    plt.ylabel("Happiness (%)")
-    plt.show()
+    if plot:
+        plot_run_summary(stats, agents, last_round, title_suffix = " (affordable housing policy)")
 
     end = time.time()
     print(f"Time taken: {end-start:.4f} seconds")
@@ -363,6 +341,8 @@ def monte_carlo_sim_affordable(n_agents = N_AGENTS,
                     delta = DELTA,
                     theta_min = THETA_MIN,
                     theta_max = THETA_MAX,
+                    preference = PREFERENCE, # "status" or "homophily", see common.py
+                    homophily_window = HOMOPHILY_WINDOW,
                     converge = False,
                     convergence_bound = 5, # will the sim end if we have churn convergence?
                     income_cutoff = 2, # agents with this income bracket and below are eligible
@@ -380,8 +360,6 @@ def monte_carlo_sim_affordable(n_agents = N_AGENTS,
 
     mc_stats = initialize_mc_stats(num_runs = n_runs, num_rounds=max_rounds, num_agents=agents_og.size, num_neighborhoods=n_neighborhoods)
 
-    # for plotting happiness by income bracket
-    max_brackets = N_BRACKETS
     final_happiness_by_bracket = mc_stats["bracket_happiness"]
 
     for current_run in range(n_runs):
@@ -400,7 +378,8 @@ def monte_carlo_sim_affordable(n_agents = N_AGENTS,
         # ideally we wanna run this sim until all agents are happy, but thats very unlikely to ever happen
         while not np.all(agents["happy"]):
             agents, houses, bids, num_winners = run_round_affordable(agents, houses, happiness_percent, delta,
-                                                                     nonmarket_quality, temperature, lower_price)
+                                                                     nonmarket_quality, temperature, lower_price,
+                                                                     preference, homophily_window)
 
             # log the data
             mc_stats = get_mc_stats(mc_stats, agents, houses, run_id = current_run, current_round=count)
@@ -414,7 +393,7 @@ def monte_carlo_sim_affordable(n_agents = N_AGENTS,
         mc_stats["last_round"][current_run] = count-1
 
         # happiness by income bracket at the end of the run
-        for i in range(max_brackets):
+        for i in range(N_BRACKETS):
             mask = agents["income_bracket"] == i
             total_i = np.sum(mask)
             if total_i > 0:
@@ -428,35 +407,13 @@ def monte_carlo_sim_affordable(n_agents = N_AGENTS,
     print(f"Set aside targeting (last run): {set_aside_targeting(agents, houses)}")
 
     if plot:
-        # plot happiness over time
-        index = np.arange(0,last_round+1)
-        mean_happiness, _, _ = mc_mean_ci(mc_stats, "happiness", last_round)
-        plt.plot(index, mean_happiness, linewidth=2)
-        plt.title("Average Happiness Over Time")
-        plt.xlabel("Rounds")
-        plt.ylabel("Happiness (%)")
-        plt.show()
-
-        # plot happiness by income bracket
-        brackets = np.arange(max_brackets)
-        happy = np.nanmean(final_happiness_by_bracket, axis=0)
-
-        # print a text output
-        for i in range(max_brackets):
-            print(f"Income bracket {i}: {round(happy[i],3)}% of agents happy on average")
-
-        plt.bar(brackets, happy)
-        plt.title("Happiness by Income Bracket")
-        plt.xlabel("Income bracket")
-        plt.ylabel("Happiness (%)")
-        plt.show()
+        plot_mc_summary(mc_stats, last_round, title_suffix = " (affordable housing policy)")
 
     end = time.time()
     print(f"Total time taken: {end-start:.4f} secs")
     return agents, houses, mc_stats, last_round
 
 "------------------------------- paired policy effect at each run's final round ------------------------------------"
-from scipy.stats import t as student_t
 def paired_difference(mc_b, mc_p, stat, confidence = 95):
     runs = np.arange(mc_b["last_round"].size)
     b = mc_b[stat][runs, mc_b["last_round"]].astype(np.float64)
@@ -473,11 +430,9 @@ def paired_difference(mc_b, mc_p, stat, confidence = 95):
 # each agent's realized situation at the end of a run: neighborhood quality q, budget share left after rent c, utility u
 # an agent whose home is now worse than nonmarket housing would leave next round, so their welfare is nonmarket housing's
 # (q = q_nm, c = 1). note c is a SHARE of the housing budget, so utility doesn't grow with income by itself
-def welfare_state(agents, houses, home_rents, delta = DELTA, nonmarket_quality = NONMARKET_QUALITY):
-    empty_q = city_quality(agents)
-    q_nm = nonmarket_quality * empty_q
-    freq, total = get_freq_and_total(agents)
-    proportions = get_proportion(freq, total, empty_q)
+def welfare_state(agents, houses, home_rents, delta = DELTA, nonmarket_quality = NONMARKET_QUALITY,
+                  preference = PREFERENCE, homophily_window = HOMOPHILY_WINDOW):
+    proportions, q_nm = neighborhood_quality(agents, nonmarket_quality, preference, homophily_window)
 
     b = agents["income_bracket"]
     y = agents["income"]
@@ -550,17 +505,16 @@ def _show_table(df):
     except ImportError:
         print(df.to_string())
 
-def _mean_and_ci(data, confidence):
-    # mean across runs (axis 0) with a t confidence interval
-    data = np.asarray(data, dtype = np.float64)
-    n = np.sum(np.isfinite(data), axis = 0)
-    mean = np.nanmean(data, axis = 0)
-    alpha = (100 - confidence) / 100
-    with np.errstate(invalid = "ignore", divide = "ignore"):
-        half = student_t.ppf(1 - alpha/2, np.maximum(n - 1, 1)) * np.nanstd(data, axis = 0, ddof = 1) / np.sqrt(n)
-    return mean, mean - half, mean + half
-
 "------------------------------------ compare the policy outcomes to the baseline -----------------------------------"
+# the metrics we're gonna look at to evaluate our policy
+POLICY_METRICS = [
+    ("happiness", "Happiness (%)"),
+    ("nonmarket_housing", "Nonmarket housing (%)"),
+    ("churn", "Churn (%)"),
+    ("gini", "Gini"),
+    ("theil_between", "Theil (between)")
+]
+
 def evaluate_policy(n_agents=N_AGENTS,
                     n_neighborhoods=N_NEIGHBORHOODS,
                     max_rounds=100,
@@ -571,6 +525,7 @@ def evaluate_policy(n_agents=N_AGENTS,
                     income_cutoff = 2,
                     houses_eligible = 0.2,
                     lower_price = 0.6,
+                    plot = True,
                     **kwargs
                     ):
 
@@ -582,6 +537,8 @@ def evaluate_policy(n_agents=N_AGENTS,
         raise ValueError("evaluate_policy needs a seed: the welfare comparison pairs each agent across the two runs")
     delta = kwargs.get("delta", DELTA)
     nonmarket_quality = kwargs.get("nonmarket_quality", NONMARKET_QUALITY)
+    preference = kwargs.get("preference", PREFERENCE)
+    homophily_window = kwargs.get("homophily_window", HOMOPHILY_WINDOW)
     base_q = np.zeros((n_runs, n_agents), dtype = np.float32)
     base_c = np.zeros((n_runs, n_agents), dtype = np.float32)
     base_income_sum = np.zeros(n_runs)
@@ -597,7 +554,8 @@ def evaluate_policy(n_agents=N_AGENTS,
         welfare[k] = np.full((n_runs, len(WELFARE_GROUPS)), np.nan)
 
     def store_baseline(r, agents, houses):
-        q, c, _ = welfare_state(agents, houses, houses["value"], delta, nonmarket_quality)
+        q, c, _ = welfare_state(agents, houses, houses["value"], delta, nonmarket_quality,
+                                preference, homophily_window)
         base_q[r] = q
         base_c[r] = c
         base_income_sum[r] = np.sum(agents["income"])
@@ -606,7 +564,8 @@ def evaluate_policy(n_agents=N_AGENTS,
     def compare_policy(r, agents, houses):
         if not np.isclose(np.sum(agents["income"]), base_income_sum[r]):
             raise RuntimeError(f"run {r}: the baseline and policy runs started from different cities")
-        _, _, u_p = welfare_state(agents, houses, houses["rent_charged"], delta, nonmarket_quality)
+        _, _, u_p = welfare_state(agents, houses, houses["rent_charged"], delta, nonmarket_quality,
+                                 preference, homophily_window)
         theta = agents["theta"].astype(np.float64)
         ev = equivalent_variation(base_q[r].astype(np.float64), base_c[r].astype(np.float64), u_p, theta, delta) * 100
         tol = 1e-4 # in % of income, ignores floating point noise for agents whose situation didn't change
@@ -664,74 +623,25 @@ def evaluate_policy(n_agents=N_AGENTS,
     del base_q, base_c # free the per-agent arrays
 
     last_round = min(last_round_b, last_round_p)
-    index = np.arange(last_round + 1)
 
-    # the metrics we're gonna look at to evaluate our policy
-    metrics = [
-        ("happiness", "Happiness (%)"),
-        ("nonmarket_housing", "Nonmarket housing (%)"),
-        ("churn", "Churn (%)"),
-        ("gini", "Gini"),
-        ("theil_between", "Theil (between)")
-    ]
-
-    for stat, label in metrics:
-        mean_b, low_b, up_b = mc_mean_ci(mc_b, stat, last_round, confidence, band)
-        mean_p, low_p, up_p = mc_mean_ci(mc_p, stat, last_round, confidence, band)
-
-        # run r of the baseline and run r of the policy start from the same city, so the cleanest test is the
-        # paired difference at the final round (most of the city-to-city noise cancels out)
+    # run r of the baseline and run r of the policy start from the same city, so the cleanest test is the
+    # paired difference at the final round (most of the city-to-city noise cancels out)
+    for stat, label in POLICY_METRICS:
         diff = paired_difference(mc_b, mc_p, stat, confidence)
         if diff is not None:
             print(f"{label} at the final round, policy - baseline: {diff[0]:+.4f} ({confidence}% CI {diff[1]:+.4f} to {diff[2]:+.4f})")
 
-        plt.figure(figsize=(10, 6))
+    if plot:
+        plot_policy_comparison(mc_b, mc_p, last_round, POLICY_METRICS, confidence, band)
+        plot_policy_bracket_happiness(mc_b, mc_p, income_cutoff, confidence, band)
 
-        plt.plot(index, mean_b, label="Baseline", linewidth=2)
-        plt.fill_between(index, low_b, up_b, alpha=0.25)
-
-        plt.plot(index, mean_p, label="Affordable housing policy", linewidth=2)
-        plt.fill_between(index, low_p, up_p, alpha=0.25)
-
-        plt.title(f"{label}: Baseline vs Policy")
-        plt.xlabel("Rounds")
-        plt.ylabel(label)
-        plt.legend()
-        plt.grid(alpha=0.3)
-        plt.show()
-
-    # happiness by income bracket at the end of each run, baseline vs policy
-    # this is the 'who does the policy reach' plot. bars = mean across runs, error bars = CI across runs
-    alpha = (100 - confidence) / 100
-    brackets = np.arange(N_BRACKETS)
-    width = 0.4
-    plt.figure(figsize=(10, 6))
-    for offset, mc, label in [(-width/2, mc_b, "Baseline"), (width/2, mc_p, "Affordable housing policy")]:
-        data = mc["bracket_happiness"]
-        mean = np.nanmean(data, axis=0)
-        n = np.sum(np.isfinite(data), axis=0)
-        if band == "spread":
-            lo = np.nanpercentile(data, alpha/2*100, axis=0)
-            hi = np.nanpercentile(data, (1-alpha/2)*100, axis=0)
-        else: # CI of the mean
-            half = student_t.ppf(1 - alpha/2, np.maximum(n-1, 1)) * np.nanstd(data, axis=0, ddof=1) / np.sqrt(n)
-            lo, hi = mean - half, mean + half
-        plt.bar(brackets + offset, mean, width, yerr=[mean-lo, hi-mean], capsize=3, label=label)
-    plt.axvline(income_cutoff + 0.5, color="grey", linestyle="--", linewidth=1) # eligible brackets are to the left
-    plt.title("Happiness by income bracket: Baseline vs Policy")
-    plt.xlabel("Income bracket")
-    plt.ylabel("Happiness (%)")
-    plt.legend()
-    plt.grid(alpha=0.3, axis="y")
-    plt.show()
-
-    report_welfare(welfare, income_cutoff, confidence)
+    report_welfare(welfare, income_cutoff, confidence, plot)
     return mc_b, mc_p, last_round, welfare
 
 "--------------------------------------------- welfare: print and plot ----------------------------------------------"
-def report_welfare(welfare, income_cutoff = 2, confidence = 95):
-    med, mlo, mhi = _mean_and_ci(welfare["ev_median_all"], confidence)
-    ev, lo, hi = _mean_and_ci(welfare["ev_all"], confidence)
+def report_welfare(welfare, income_cutoff = 2, confidence = 95, plot = True):
+    med, mlo, mhi = runs_mean_ci(welfare["ev_median_all"], confidence)
+    ev, lo, hi = runs_mean_ci(welfare["ev_all"], confidence)
     print()
     print("Welfare (equivalent variation, % of income; + = the policy is worth a rent cut of that size):")
     print(f"  median agent:                   {med:+.3f}% ({confidence}% CI {mlo:+.3f} to {mhi:+.3f})")
@@ -743,7 +653,7 @@ def report_welfare(welfare, income_cutoff = 2, confidence = 95):
     m = lambda k: np.nanmean(welfare[k], axis = 0)
     by_bracket = pd.DataFrame({
         "Median EV (% of income)": m("ev_median"),
-        "Mean EV, capped (% of income)": _mean_and_ci(welfare["ev_mean"], confidence)[0],
+        "Mean EV, capped (% of income)": runs_mean_ci(welfare["ev_mean"], confidence)[0],
         "Better off (%)": m("gain_pct"),
         "Worse off (%)": m("lose_pct"),
         "Housed, baseline (%)": m("housed_base"),
@@ -766,29 +676,5 @@ def report_welfare(welfare, income_cutoff = 2, confidence = 95):
     welfare["by_bracket"] = by_bracket # kept for export, e.g. welfare["by_group"].to_csv(...)
     welfare["by_group"] = by_group
 
-    brackets = np.arange(N_BRACKETS)
-    fig, axes = plt.subplots(1, 2, figsize = (14, 5))
-
-    mean, lo, hi = _mean_and_ci(welfare["ev_median"], confidence) # median agent in each bracket, CI across runs
-    axes[0].bar(brackets, mean, yerr = [mean - lo, hi - mean], capsize = 3)
-    axes[0].axhline(0, color = "black", linewidth = 0.8)
-    axes[0].axvline(income_cutoff + 0.5, color = "grey", linestyle = "--", linewidth = 1) # eligible brackets to the left
-    axes[0].set_title("Welfare effect of the policy by income bracket")
-    axes[0].set_xlabel("Income bracket")
-    axes[0].set_ylabel("Median equivalent variation (% of income)")
-    axes[0].grid(alpha = 0.3, axis = "y")
-
-    gain = np.nanmean(welfare["gain_pct"], axis = 0)
-    lose = np.nanmean(welfare["lose_pct"], axis = 0)
-    axes[1].bar(brackets, gain, label = "Better off")
-    axes[1].bar(brackets, -lose, label = "Worse off")
-    axes[1].axhline(0, color = "black", linewidth = 0.8)
-    axes[1].axvline(income_cutoff + 0.5, color = "grey", linestyle = "--", linewidth = 1)
-    axes[1].set_title("Who gains and who loses")
-    axes[1].set_xlabel("Income bracket")
-    axes[1].set_ylabel("% of bracket (losers shown below zero)")
-    axes[1].legend()
-    axes[1].grid(alpha = 0.3, axis = "y")
-
-    plt.tight_layout()
-    plt.show()
+    if plot:
+        plot_welfare(welfare, income_cutoff, confidence)

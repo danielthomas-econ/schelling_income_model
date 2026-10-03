@@ -30,9 +30,18 @@ STARTING_HOUSE_PRICE = 1_00_000
 DECAY_RATE = 0.95       # fall in price if supply > demand
 MAX_CHANGE = 0.1        # max % change in one round, prevents insane price swings
 
+# ----------------------------------------- what makes a neighborhood good? ------------------------------------------ #
+# q = the share of a neighborhood's residents whose income bracket is 'similar' to the agent's. two definitions:
+#   "status":    brackets at or above the agent's own (everyone wants neighbors at least as rich as them)
+#   "homophily": brackets within HOMOPHILY_WINDOW of the agent's own (everyone wants neighbors like them)
+# under "status" a poorer neighbor lowers q for everyone above them, so mixing is costly for almost everyone by
+# construction. under "homophily" a richer neighbor lowers q for the poor too, so mixing isn't one sided anymore
+PREFERENCE = "status"
+HOMOPHILY_WINDOW = 1 # 1 => your own bracket and the ones right above and below it
+
 # ------------------------------------------- agent preferences and budgets ------------------------------------------ #
 # utility of living in neighborhood k at rent r:  U = q^theta * c^(1-theta)
-#   q = share of k's residents at or above the agent's income bracket
+#   q = share of k's residents in a bracket similar to the agent's (see PREFERENCE)
 #   c = (DELTA*y - r) / (DELTA*y): the share of the agent's housing budget left after rent
 # DELTA is the share of income available for housing; the other (1 - DELTA) is committed to non-housing necessities.
 # rents above DELTA*y give c = 0 => U = 0, so no agent ever pays more than DELTA of their income in rent
@@ -45,11 +54,11 @@ THETA_MIN = 0.1
 THETA_MAX = 0.9
 
 # nonmarket housing (the outside option): no rent (c = 1), and its quality for an agent in bracket b is
-#   q_nm(b) = NONMARKET_QUALITY * s(b),   s(b) = city-wide share of agents at or above bracket b
+#   q_nm(b) = NONMARKET_QUALITY * s(b),   s(b) = city-wide share of agents in a bracket similar to b
 # i.e. nonmarket housing is like living in a randomly mixed neighborhood, discounted by NONMARKET_QUALITY.
 # why not a single q_nm for everyone: q is measured relative to the agent's own bracket, so for the top 1% a mixed
-# neighborhood has q ~ 0.01. a constant q_nm of, say, 0.2 would make every mixed neighborhood worse than nonmarket
-# housing for brackets 9-11; they would never bid, never cluster, and stay in nonmarket housing forever
+# neighborhood has q ~ 0.01 (under "status"). a constant q_nm of, say, 0.2 would make every mixed neighborhood worse
+# than nonmarket housing for brackets 9-11; they would never bid, never cluster, and stay in nonmarket housing forever
 NONMARKET_QUALITY = 0.1
 
 # do agents in nonmarket housing still count towards the composition of the neighborhood they were evicted from?
