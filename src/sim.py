@@ -37,8 +37,9 @@ def run_round(agents, houses, happiness_percent = DEFAULT_HAPPINESS_PERCENT, del
                                            rents_market = bidding_rents(houses),
                                            available_market = vacant_neighborhoods(houses),
                                            delta = delta, temperature = temperature)
-    agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen, stay)
-    houses = update_prices(houses, cutoff_bids)
+    floor = reservation_rent(agents)
+    agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen, stay, floor)
+    houses = update_prices(houses, cutoff_bids, floor)
     return agents, houses, bids, num_winners
 
 "-------------------------------------- run the sim max_rounds number of times --------------------------------------"

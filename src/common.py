@@ -27,8 +27,10 @@ DEFAULT_HAPPINESS_PERCENT = 0.5
 STARTING_HOUSE_PRICE = 1_00_000
 
 # housing price update rules
-DECAY_RATE = 0.95       # fall in price if supply > demand
 MAX_CHANGE = 0.1        # max % change in one round, prevents insane price swings
+# landlords' reservation rent: no home rents for less than this share of the city's median income, in any
+# neighborhood. without it, homes nobody wants at any price saw their rent decay to ~0 and the residents lived for free
+RESERVATION_RENT_SHARE = 0.05
 
 # ----------------------------------------- what makes a neighborhood good? ------------------------------------------ #
 # q = the share of a neighborhood's residents whose income bracket is 'similar' to the agent's. two definitions:

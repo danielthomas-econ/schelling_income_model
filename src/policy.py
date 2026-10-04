@@ -123,7 +123,7 @@ def new_population_affordable(n_agents = N_AGENTS,
 #      same uniform price auction as allocate_houses. only this auction sets the market clearing price,
 #      so the discounted units don't drag down the market rent
 @njit(cache = True)
-def allocate_houses_affordable(agents, houses, bids, neighborhood_chosen, stay):
+def allocate_houses_affordable(agents, houses, bids, neighborhood_chosen, stay, reservation_rent = 0.0):
     n_neighborhoods = np.max(houses["neighborhood"])+1
     cutoff_bids = np.zeros(n_neighborhoods) # market rent signal, see clearing_price in houses.py
     vacant_mask = houses["tenant"] == -1
@@ -140,7 +140,7 @@ def allocate_houses_affordable(agents, houses, bids, neighborhood_chosen, stay):
         # a completely empty neighborhood (round 0) has no rent yet: the auction over all its homes discovers it,
         # and the set aside homes get the same discount on it
         if homes.shape[0] > 0 and bidders.shape[0] > 0 and np.all(vacant_mask[homes]):
-            p0 = vacancy_price(bids, sorted_bidders, homes.shape[0])
+            p0 = max(vacancy_price(bids, sorted_bidders, homes.shape[0]), reservation_rent)
             for h in homes:
                 ratio = houses["rent_charged"][h] / houses["value"][h] if houses["value"][h] > 0 else 1.0
                 houses["value"][h] = p0
@@ -209,10 +209,10 @@ def allocate_houses_affordable(agents, houses, bids, neighborhood_chosen, stay):
 "-------------------------------------- pricing system under affordable housing -------------------------------------"
 # same rule as update_prices in houses.py for the market rent, then the discount for set aside homes
 def update_prices_affordable(houses, cutoff_bids,
-                             decay_rate = DECAY_RATE, # fall in price if supply > demand
+                             reservation_rent = 0.0, # no market rent falls below this
                              max_change = MAX_CHANGE, # maximum % change in price in one round
                              lower_price = 0.6): # low rent homes cost (market rent) * (lower_price), 60% by default
-    houses = update_prices(houses, cutoff_bids, decay_rate, max_change)
+    houses = update_prices(houses, cutoff_bids, reservation_rent, max_change)
     houses = set_rent_charged(houses, lower_price)
     return houses
 
@@ -252,8 +252,10 @@ def run_round_affordable(agents, houses, happiness_percent = DEFAULT_HAPPINESS_P
                                            rents_eligible = rents_eligible,
                                            available_eligible = vacant_neighborhoods(houses),
                                            delta = delta, temperature = temperature)
-    agents, houses, cutoff_bids, num_winners = allocate_houses_affordable(agents, houses, bids, neighborhoods_chosen, stay)
-    houses = update_prices_affordable(houses, cutoff_bids, lower_price = lower_price)
+    floor = reservation_rent(agents)
+    agents, houses, cutoff_bids, num_winners = allocate_houses_affordable(agents, houses, bids, neighborhoods_chosen,
+                                                                          stay, floor)
+    houses = update_prices_affordable(houses, cutoff_bids, floor, lower_price = lower_price)
 
     # use the correct way to update rent paid
     agents = update_rent_paid_affordable(agents, houses)

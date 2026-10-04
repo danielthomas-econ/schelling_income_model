@@ -35,9 +35,10 @@ def _run_round_timed(agents, houses, happiness_percent, delta, nonmarket_quality
                                            available_market = vacant_neighborhoods(houses),
                                            delta = delta, temperature = temperature)
     t.lap("Bidding process")
-    agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen, stay)
+    floor = reservation_rent(agents)
+    agents, houses, cutoff_bids, num_winners = allocate_houses(agents, houses, bids, neighborhoods_chosen, stay, floor)
     t.lap("House allocation")
-    houses = update_prices(houses, cutoff_bids)
+    houses = update_prices(houses, cutoff_bids, floor)
     t.lap("Update prices")
     return agents, houses, bids, num_winners
 
@@ -63,9 +64,11 @@ def _run_round_affordable_timed(agents, houses, happiness_percent, delta, nonmar
                                            available_eligible = vacant_neighborhoods(houses),
                                            delta = delta, temperature = temperature)
     t.lap("Bidding process")
-    agents, houses, cutoff_bids, num_winners = allocate_houses_affordable(agents, houses, bids, neighborhoods_chosen, stay)
+    floor = reservation_rent(agents)
+    agents, houses, cutoff_bids, num_winners = allocate_houses_affordable(agents, houses, bids, neighborhoods_chosen,
+                                                                          stay, floor)
     t.lap("House allocation")
-    houses = update_prices_affordable(houses, cutoff_bids, lower_price = lower_price)
+    houses = update_prices_affordable(houses, cutoff_bids, floor, lower_price = lower_price)
     t.lap("Update prices")
     agents = update_rent_paid_affordable(agents, houses)
     t.lap("Update rent paid")

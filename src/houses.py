@@ -125,7 +125,7 @@ def vacancy_price(bids, sorted_bidders, k):
     return bids[sorted_bidders[D-1]] # everyone wins, pays the lowest bid
 
 @njit(cache=True)
-def allocate_houses(agents, houses, bids, neighborhood_chosen, stay):
+def allocate_houses(agents, houses, bids, neighborhood_chosen, stay, reservation_rent = 0.0):
     n_neighborhoods = np.max(houses["neighborhood"])+1
     cutoff_bids = np.zeros(n_neighborhoods) # rent signal per neighborhood, 0 => no excess demand
     vacant_mask = houses["tenant"] == -1
@@ -159,8 +159,9 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen, stay):
         # neighborhood faced the (often higher) prevailing rent, so a winner could be priced out the very next round.
         # now a winner must bid at least the prevailing rent, and pays it; update_prices moves the rent afterwards
         # the exception is a completely empty neighborhood (round 0): it has no rent yet, so the auction discovers it
+        # (but landlords won't let a home for less than the reservation rent)
         if k == homes.shape[0]:
-            price = vacancy_price(bids, sorted_bidders, k)
+            price = max(vacancy_price(bids, sorted_bidders, k), reservation_rent)
             for h in homes:
                 houses["value"][h] = price
         else:
@@ -185,33 +186,45 @@ def allocate_houses(agents, houses, bids, neighborhood_chosen, stay):
     agent_house_mapping(agents, houses) # update the mapping after the allocation is made
     return agents, houses, cutoff_bids, num_winners
 
+"------------------------------------------ the landlords' reservation rent -----------------------------------------"
+# the lowest rent any home lets for: a fixed share of the city's median income, the same in every neighborhood
+def reservation_rent(agents):
+    return RESERVATION_RENT_SHARE * float(np.median(agents["income"]))
+
 "-------------------------------------- update the house prices based on demand -------------------------------------"
 # every home in a neighborhood shares one rent, and it moves by at most max_change in one round:
 #   excess demand (more claims than homes in the clearing auction): move towards the clearing rent
-#   excess supply (vacant market homes, no excess demand): decay
+#   excess supply (vacant market homes, no excess demand): fall by the share of market homes that are vacant
 #   neither (full, and nobody outbid the tenants): hold the rent where it is
+# and it never goes below the landlords' reservation rent
 # FIX: the rent used to decay whenever there was no excess demand, including in full neighborhoods. since agents only
 # bid where there's a vacancy, a full neighborhood never sees outside bids, so its rent fell 5% every round forever and
 # rents ended up at 0.2-2% of income
-# the old price floor (beta * poorest resident's income) is gone along with beta
+# FIX: excess supply used to be a flat 5% cut for any vacancy at all, so one empty home out of ~1000 cut the rent as
+# much as 500 would. with no floor either, a neighborhood with a vacancy nobody wanted at any price had its rent decay
+# to ~0 (0.95^100 = 0.6%) and its residents lived nearly for free. the old floor (beta * poorest resident's income)
+# went with beta: it depended on who lived there, not on what it costs to let a home
 def update_prices(houses, cutoff_bids,
-                  decay_rate = DECAY_RATE, # fall in price if supply > demand
+                  reservation_rent = 0.0, # no rent falls below this (see RESERVATION_RENT_SHARE)
                   max_change = MAX_CHANGE): # maximum % change in price in one round
     n_neighborhoods = np.max(houses["neighborhood"]) + 1
-    vacant = houses["tenant"] == -1
+    market = np.ones(houses.size, dtype = np.bool_)
     if "low_rent" in houses.dtype.names:
-        vacant = vacant & ~houses["low_rent"] # empty set aside homes aren't market supply
+        market = ~houses["low_rent"] # set aside homes aren't market supply
+    vacant = market & (houses["tenant"] == -1)
     n_vacant = np.bincount(houses["neighborhood"][vacant], minlength = n_neighborhoods)
+    n_market = np.bincount(houses["neighborhood"][market], minlength = n_neighborhoods)
     for n in range(n_neighborhoods):
         mask = houses["neighborhood"] == n
         old_price = houses["value"][mask][0]
         cutoff = cutoff_bids[n]
         if cutoff > 0: # excess demand: move towards the auction's market clearing rent
             new_price = cutoff
-        elif n_vacant[n] > 0: # excess supply
-            new_price = old_price * decay_rate
+        elif n_vacant[n] > 0: # excess supply: the more homes stand empty, the faster the rent falls
+            new_price = old_price * (1 - n_vacant[n] / n_market[n]) # 1 empty home in 1000 => 0.1% cut
         else: # full, no excess demand: equilibrium
-            continue
-        # clip the change so rents don't swing wildly in one round
-        houses["value"][mask] = min(max(new_price, old_price * (1-max_change)), old_price * (1+max_change))
+            new_price = old_price
+        # clip the change so rents don't swing wildly in one round, then apply the floor
+        new_price = min(max(new_price, old_price * (1-max_change)), old_price * (1+max_change))
+        houses["value"][mask] = max(new_price, reservation_rent)
     return houses
