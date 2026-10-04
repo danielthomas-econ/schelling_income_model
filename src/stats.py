@@ -54,9 +54,12 @@ def neighborhood_inequality(agents, n_neighborhoods):
         sorted_income = np.sort(nb_income)
         ginis[i] = (2 * np.sum((np.arange(1,agents_in_i+1)*sorted_income))) / (agents_in_i * np.sum(sorted_income)) - (agents_in_i+1)/agents_in_i
 
-        # theil, weights are shares of the resident population so that within + between = global theil
+        # theil T. within + between = global theil only if each neighborhood's theil is weighted by its share of
+        # total INCOME (the between term uses population shares)
+        # FIX: within used population-share weights, so the two parts didn't add up to the global theil
+        # (the between share came out ~0.2-0.8 pp too high)
         theils[i] = (np.sum(nb_income/nb_avg_income * np.log(nb_income/nb_avg_income))) / agents_in_i
-        theil_within += theils[i] * agents_in_i/n_res
+        theil_within += theils[i] * (agents_in_i * nb_avg_income) / (n_res * global_avg_income)
         theil_between += (agents_in_i/n_res) * (nb_avg_income/global_avg_income) * np.log(nb_avg_income/global_avg_income)
 
     return avg_income, np.nanmean(ginis) * 100, np.nanmean(theils), theil_within, theil_between
