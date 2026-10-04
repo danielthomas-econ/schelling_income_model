@@ -1,31 +1,31 @@
 # Income segregation in an agent-based housing market
 
-An agent-based model of a city in which households sort into neighborhoods by income through a housing market with
-prices, used to evaluate a common affordable-housing rule. One million households, incomes calibrated to Delhi,
-runs on a laptop.
+Inspired by Schelling's racial segregation model, we model a city where agents' happiness is determined by the 
+income composition of their neighborhood. If unhappy, they try to move to a neighborhood with a more desirable
+income composition. We also add a housing market, constraining agents' choices.
 
 <p align="center">
   <img src="figures/segregation.gif" width="440" alt="Average income by neighborhood as the city sorts by income">
-  <br><sub>Average household income by neighborhood as the city sorts itself (100k households, 100 neighborhoods).
-  The grid is for display only: neighborhoods in the model have no geography.</sub>
+  <br><sub>Average household income by neighborhood as the city sorts itself. The increasing contrast visualizes
+  the segregation. Grid positions are arbitrary.</sub>
 </p>
 
 ## Headline result
 
 **Reserving 20% of every neighborhood's homes for low-income households, at 40% below market rent, leaves most
-households worse off, including most of the households it targets.**
+households worse off, including most of the households the policy is intended to benefit.**
 
-- **Reserved homes go unfilled.** A uniform quota places reserved homes in neighborhoods where eligible households
+- *Reserved homes go unfilled.* A uniform quota places reserved homes in neighborhoods where eligible households
   don't want to live. Roughly 40-70% of them sit empty, taking 8-14% of the city's homes off the market.
-- **Everyone else pays through rents.** With less supply, average market rents rise (by 27% and 135% under the two
+- *Everyone else pays through rents.* With less supply, average market rents rise (by 27% and 135% under the two
   preference specifications) and 4-10 percentage points more households are priced out of market housing altogether.
-- **The gains are narrow.** Only eligible households that land a reserved home gain (a median of 0.5-1.3% of income),
+- *The gains are narrow.* Only eligible households that land a reserved home gain (a median of 0.5-1.3% of income),
   and they are 6-12% of the city. Even among them, only about half come out ahead.
 
 <!-- auto:headline -->
 | | Status preferences | Homophily preferences |
 |---|---|---|
-| Welfare effect on the median household | **-2.6%** of income (95% CI -2.9 to -2.2) | **-15.7%** of income (95% CI -16.5 to -14.8) |
+| Welfare effect on the median household | *-2.6%* of income (95% CI -2.9 to -2.2) | *-15.7%* of income (95% CI -16.5 to -14.8) |
 | Households worse off / better off | 62% / 31% | 86% / 10% |
 | Eligible households worse off | 56% | 74% |
 | Reserved homes left empty | 8% of all homes | 14% of all homes |
@@ -41,28 +41,29 @@ they are close to invariant to population size.
 
 ## The model in brief
 
-- **Households.** Incomes are drawn from Delhi's income distribution (CMIE Consumer Pyramids) and grouped into 12
+- *Households.* Incomes are drawn from Delhi's income distribution (CMIE Consumer Pyramids) and grouped into 12
   brackets: deciles, with the top decile split at the 95th and 99th percentiles.
-- **Preferences.** Households value who their neighbors are and the money left after rent:
+- *Preferences.* Households value who their neighbors are and the money left after rent:
   $U = q^{\theta} c^{1-\theta}$, with $\theta \sim U(0.1, 0.9)$. $q$ is the share of neighbors in a "similar"
-  bracket, under two specifications: **status** (at or above one's own bracket) or **homophily** (within one
+  bracket, under two specifications: *status* (at or above one's own bracket) or *homophily* (within one
   bracket). As in Schelling, a household looks to move when fewer than half its neighbors are similar.
-- **Housing market.** 100 neighborhoods, one home per household. Households bid their closed-form bid-rent; each
-  neighborhood runs a uniform-price auction in which current tenants compete with newcomers. Rents move toward the
+- *Housing market.* 100 neighborhoods, one home per household. Each
+  neighborhood runs a uniform-price auction in which current tenants compete with newcomers, with each bidding
+  the most they'd be willing to pay to live there. Rents move toward the
   clearing price, fall with vacancies, and never drop below the landlords' reservation rent. Households priced out
-  everywhere fall back on free, low-quality nonmarket housing, a stand-in for informal housing.
-- **Policy.** 20% of homes in every neighborhood are reserved for the bottom 30% of earners at 60% of market rent.
-- **Welfare.** Equivalent variation, in % of income, computed household by household. Each Monte Carlo run simulates
-  the same city with and without the policy (common random numbers), so every effect is a paired comparison,
-  reported with 95% confidence intervals over 20 runs.
+  everywhere fall back on free, low-quality 'nonmarket housing', a stand-in for informal housing.
+- *Policy.* 20% of homes in every neighborhood are reserved for the bottom 30% of earners at 60% of market rent.
+- *Welfare.* Welfare changes are converted into monetary units using equivalent variation, which calculates
+  the change in rent, as a share of an agent's income, that would affect it as much as the policy does.
+  Each Monte Carlo run simulates the same city with and without the policy, reported with 95% confidence intervals.
 
 ## Segregation: preferences decide who gets priced out
 
 ![Between-neighborhood inequality over time, and the share of each income bracket priced out of market housing](figures/sorting.png)
 
 Income sorting forms within about 30 rounds under either preference, and by the end about 95% of income inequality
-(Theil index) lies *between* neighborhoods rather than within them. What households want from their neighbors changes
-who loses out. When everyone wants richer neighbors (status), the middle class is squeezed: it competes with the
+(Theil index) lies between neighborhoods rather than within them. What households want from their neighbors changes
+who loses out. When everyone wants richer neighbors (status), the middle class is squeezed as it competes with the
 rich for the same neighborhoods, and 10-14% of brackets 4-7 end up priced out. When households want neighbors like
 themselves (homophily), sorting is slightly weaker and the poorest bear the cost: 19% of the bottom decile is priced
 out.
@@ -113,6 +114,6 @@ scripts/make_readme_results.py
 data/income_quantile_delhi.csv   # Delhi income quantile function (CMIE)
 ```
 
-Licensed under the [MIT License](./LICENSE).
+Licensed under the [MIT License](./LICENSE)
 
-Built with [Claude Code](https://claude.com/claude-code).
+Built with the help of [Claude Code](https://claude.com/claude-code)
