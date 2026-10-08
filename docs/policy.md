@@ -65,13 +65,10 @@ the market rent down. Reserved rents are then reset to 60% of the new market ren
 
 The README's headline result comes from a chain of four links. Each one follows from the rules above.
 
-1. **Reserved homes land where eligible households can't or won't live.** A reserved home is only taken if an
-   eligible household's bid-rent covers the discounted rent.
-   - In a rich neighborhood, even 60% of the market rent can exceed a poor household's entire housing budget.
-   - Under homophily, a poor household's $q$ in a rich neighborhood is close to zero, so its bid-rent there is zero
-     at any price.
-   - So the uniform 20% quota leaves many reserved homes empty: most of them under homophily, fewer under status,
-     where the poorest bracket values every neighborhood equally ($q = 1$).
+1. **Reserved homes empty out where eligible households can't or won't live.** As the city sorts, reserved homes in
+   the richer neighborhoods lose their eligible tenants and no eligible household replaces them. By the end, about 40%
+   of reserved homes stand empty under status and about 70% under homophily
+   ([why](#why-reserved-homes-stand-empty)).
 2. **Empty reserved homes are withdrawn supply.** No one else may rent them, and they don't count as vacancies. The
    market therefore loses every unfilled reserved home: more market vacancies are absorbed, and neighborhoods that
    used to have spare homes now have excess demand.
@@ -87,6 +84,80 @@ the baseline (under homophily, a poor household in a mixed neighborhood), and th
 it. Reserved homes also bring poorer neighbors into richer neighborhoods, which under status preferences lowers $q$
 for everyone above them.
 
-**What the model leaves out.** Housing supply is fixed. In practice, set-asides are usually attached to *new*
+## Why reserved homes stand empty
+
+The numbers in this section come from one seeded run (100k households, seed 0, 100 rounds). The Monte Carlo averages
+in the README tell the same story.
+
+### They are filled first, then empty out as the city sorts
+
+Share of reserved homes vacant, by round:
+
+| Round | 0-5 | 10 | 20 | 40 | 99 |
+|---|---|---|---|---|---|
+| Status | 0% | 0% | 13% | 40% | 42% |
+| Homophily | 0% | 2% | 67% | 68% | 68% |
+
+In round 0 every neighborhood is an unsorted mix with low rents, and every reserved home finds an eligible tenant.
+The vacancies appear between rounds 10 and 40, while the city sorts. Then, in neighborhood after neighborhood:
+
+1. **Richer households move in**, and the market rent rises. The discounted rent is 60% of the market rent, so it
+   rises with it.
+2. **The neighborhood's mix moves away from the eligible tenant's own bracket.** This lowers the tenant's $q$, and
+   with it the most it would pay to stay.
+3. **The tenant is priced out** once the discounted rent passes that stay value
+   ([evictions](housing-market.md#3-evictions)). The reserved home becomes vacant.
+4. **No eligible household takes it back**, for the reasons below. It stays empty for the rest of the run.
+
+### By the end, they are concentrated in the richer neighborhoods
+
+Neighborhoods grouped into fifths by the mean bracket of their residents, at round 99:
+
+| Neighborhoods, poorest to richest | 1st fifth | 2nd | 3rd | 4th | 5th |
+|---|---|---|---|---|---|
+| **Status:** discounted rent (₹/yr) | 15k | 45k | 98k | 170k | 259k |
+| **Status:** reserved homes vacant | 3% | 0% | 16% | 92% | 100% |
+| **Homophily:** discounted rent (₹/yr) | 63k | 86k | 91k | 103k | 133k |
+| **Homophily:** reserved homes vacant | 0% | 45% | 95% | 100% | 100% |
+
+The two preferences empty these homes for different reasons:
+
+- **Status: the discount isn't enough.** Under status the poorest bracket values every neighborhood fully ($q = 1$),
+  so the obstacle is money. An eligible household's whole housing budget (65% of income) is at most about ₹1.15
+  lakh a year for the poorest bracket, and ₹1.73 lakh for the richest eligible one. Its bid-rent is always below that
+  budget, so a discounted rent of ₹1.7-2.6 lakh in the richest fifth of neighborhoods is out of reach at any
+  preference.
+- **Homophily: the neighborhoods aren't worth living in.** The discounted rents are lower, but a poor household's $q$
+  in a middle- or upper-income neighborhood is close to zero. Its bid-rent there is near zero, so it prefers free
+  nonmarket housing even at a 40% discount.
+
+### The homes that would be taken are in the wrong places
+
+Eligible households don't lack demand for reserved homes; it's in the wrong neighborhoods. Under homophily, about 9,000
+of the 30,000 eligible households end the run in nonmarket housing. Yet the reserved homes in the poorest fifth of
+neighborhoods, the only ones they want, are all occupied. The quota is fixed at 20% of *every* neighborhood, so the
+supply of reserved homes doesn't follow eligible households' demand. Some neighborhoods have too few reserved homes and
+others too many.
+
+### Households don't search for cheaper rent
+
+The model has one more reason, specific to how households search. A household only looks for a new home when it is
+unhappy with its neighbors (the [Schelling trigger](households.md#happiness-the-schelling-trigger)). A cheaper rent
+somewhere else doesn't, on its own, prompt it to look. At round 99, checking every empty reserved home against every
+eligible household:
+
+| | Status | Homophily |
+|---|---|---|
+| Empty reserved homes | 8,348 | 13,504 |
+| ...that some eligible household would be strictly better off in | 2,082 | 304 |
+| ...where that household is actually searching | 0 | 0 |
+
+Most empty reserved homes have no eligible household that would be better off in them. For the few that do, the
+households that would gain are content where they live, so they never look. With price-driven search, those homes
+would fill, but they are too few to change the picture: the vacancies come mainly from the first two reasons.
+
+## What the model leaves out
+
+Housing supply is fixed. In practice, set-asides are usually attached to *new*
 construction, and their main effects run through what developers choose to build. The model captures the narrower
 question of what a uniform set-aside does to an existing stock.
